@@ -3,30 +3,39 @@ package scanner;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.BlockingQueue;
 
 public class DirectoryScanner {
 
-    public List<FileTask> scan(Path rootDirectory) {
+    public void scan(Path root,
+                     BlockingQueue<FileTask> queue) {
 
-        List<FileTask> files = new ArrayList<>();
-
-        try (var paths = Files.walk(rootDirectory)) {
+        try (var paths = Files.walk(root)) {
 
             paths.filter(Files::isRegularFile)
                     .forEach(path -> {
+
                         try {
-                            files.add(new FileTask(path, Files.size(path)));
-                        } catch (IOException e) {
-                            System.err.println("Unable to read file: " + path);
+
+                            queue.put(
+                                    new FileTask(
+                                            path,
+                                            Files.size(path)));
+
+                        } catch (Exception e) {
+
+                            e.printStackTrace();
+
                         }
+
                     });
 
         } catch (IOException e) {
-            throw new RuntimeException("Failed to scan directory: " + rootDirectory, e);
+
+            throw new RuntimeException(e);
+
         }
 
-        return files;
     }
+
 }

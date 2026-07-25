@@ -4,56 +4,67 @@ import scanner.DirectoryScanner;
 import scanner.FileTask;
 
 import java.nio.file.Path;
-import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 public class BackupManager {
 
-    private final DirectoryScanner scanner;
+    private static final int WORKERS = 3;
 
-    public BackupManager() {
-        this.scanner = new DirectoryScanner();
-    }
+    public void startBackup(String folder) {
 
-    public void startBackup(String folderPath) {
+        BlockingQueue<FileTask> queue =
+                new ArrayBlockingQueue<>(100);
 
-        System.out.println("==================================");
-        System.out.println(" Mini Backup Engine");
-        System.out.println("==================================");
+        Thread[] workers =
+                new Thread[WORKERS];
 
-        System.out.println("\nScanning: " + folderPath);
+        for (int i = 0; i < WORKERS; i++) {
 
-        List<FileTask> files = scanner.scan(Path.of(folderPath));
+            workers[i] =
+                    new Thread(
+                            new BackupWorker(i + 1,
+                                    queue));
 
-        long totalSize = 0;
+            workers[i].start();
 
-        for (FileTask file : files) {
-
-            totalSize += file.getSize();
-
-            System.out.printf("✓ %s (%s)%n",
-                    file.getFilePath(),
-                    humanReadable(file.getSize()));
         }
 
-        System.out.println("----------------------------------");
-        System.out.println("Files Found : " + files.size());
-        System.out.println("Total Size  : " + humanReadable(totalSize));
-        System.out.println("----------------------------------");
-    }
+        DirectoryScanner scanner =
+                new DirectoryScanner();
 
-    private String humanReadable(long bytes) {
+        scanner.scan(Path.of(folder), queue);
 
-        double size = bytes;
+        for (int i = 0; i < WORKERS; i++) {
 
-        String[] units = {"B", "KB", "MB", "GB", "TB"};
+            try {
 
-        int unit = 0;
+                queue.put(FileTask.POISON_PILL);
 
-        while (size >= 1024 && unit < units.length - 1) {
-            size /= 1024;
-            unit++;
+            } catch (InterruptedException e) {
+
+                Thread.currentThread().interrupt();
+
+            }
+
         }
 
-        return String.format("%.2f %s", size, units[unit]);
+        for (Thread worker : workers) {
+
+            try {
+
+                worker.join();
+
+            } catch (InterruptedException e) {
+
+                Thread.currentThread().interrupt();
+
+            }
+
+        }
+
+        System.out.println("\nBackup Complete.");
+
     }
+
 }
