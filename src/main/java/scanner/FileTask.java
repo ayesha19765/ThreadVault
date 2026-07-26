@@ -7,6 +7,9 @@ public class FileTask {
     private final Path filePath;
     private final long size;
 
+    public static final FileTask POISON_PILL =
+            new FileTask(null, -1);
+
     public FileTask(Path filePath, long size) {
         this.filePath = filePath;
         this.size = size;
@@ -20,8 +23,4 @@ public class FileTask {
         return size;
     }
 
-    @Override
-    public String toString() {
-        return String.format("%s (%d bytes)", filePath, size);
-    }
 }
