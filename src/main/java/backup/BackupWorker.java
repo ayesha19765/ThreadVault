@@ -7,17 +7,15 @@ import java.util.concurrent.BlockingQueue;
 public class BackupWorker implements Runnable {
 
     private final BlockingQueue<FileTask> queue;
-    private final int workerId;
 
-    public BackupWorker(int workerId,
-                        BlockingQueue<FileTask> queue) {
-
-        this.workerId = workerId;
+    public BackupWorker(BlockingQueue<FileTask> queue) {
         this.queue = queue;
     }
 
     @Override
     public void run() {
+
+        String workerName = Thread.currentThread().getName();
 
         try {
 
@@ -25,33 +23,23 @@ public class BackupWorker implements Runnable {
 
                 FileTask task = queue.take();
 
-                // Poison Pill
                 if (task == FileTask.POISON_PILL) {
+                    System.out.println(workerName + " shutting down.");
                     break;
                 }
 
                 System.out.printf(
-                        "[Worker-%d] Processing %s (%d bytes)%n",
-                        workerId,
+                        "%s processing %s (%d bytes)%n",
+                        workerName,
                         task.getFilePath().getFileName(),
                         task.getSize());
 
-                // simulate backup
-
+                // Simulate backup work
                 Thread.sleep(500);
-
             }
 
-            System.out.printf(
-                    "[Worker-%d] Stopped%n",
-                    workerId);
-
         } catch (InterruptedException e) {
-
             Thread.currentThread().interrupt();
-
         }
-
     }
-
 }
