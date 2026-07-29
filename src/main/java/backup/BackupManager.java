@@ -2,7 +2,9 @@ package backup;
 
 import compression.CompressionManager;
 import dedup.DeduplicationEngine;
+import metadata.FileMetadata;
 import metadata.MetadataStore;
+import metadata.MetadataWriter;
 import scanner.DirectoryScanner;
 import scanner.FileTask;
 
@@ -16,20 +18,32 @@ import java.util.concurrent.TimeUnit;
 public class BackupManager {
 
     private static final int NUMBER_OF_WORKERS = 4;
-    private static final int QUEUE_CAPACITY = 100;
+    private static final int FILE_QUEUE_CAPACITY = 100;
+    private static final int METADATA_QUEUE_CAPACITY = 100;
 
     public void startBackup(String folderPath) {
 
         System.out.println("======================================");
-        System.out.println("      Mini Backup Engine");
+        System.out.println("       Mini Backup Engine");
         System.out.println("======================================");
         System.out.println("Scanning Folder : " + folderPath);
         System.out.println();
 
-        BlockingQueue<FileTask> queue =
-                new ArrayBlockingQueue<>(QUEUE_CAPACITY);
+        /*
+         * Queue containing files waiting to be backed up
+         */
+        BlockingQueue<FileTask> fileQueue =
+                new ArrayBlockingQueue<>(FILE_QUEUE_CAPACITY);
 
-        // Shared Components
+        /*
+         * Queue containing metadata waiting to be written
+         */
+        BlockingQueue<FileMetadata> metadataQueue =
+                new ArrayBlockingQueue<>(METADATA_QUEUE_CAPACITY);
+
+        /*
+         * Shared Components
+         */
         DeduplicationEngine deduplicationEngine =
                 new DeduplicationEngine();
 
@@ -39,6 +53,23 @@ public class BackupManager {
         MetadataStore metadataStore =
                 new MetadataStore();
 
+        /*
+         * Dedicated Metadata Writer Thread
+         */
+        Thread metadataWriterThread =
+                new Thread(
+                        new MetadataWriter(
+                                metadataQueue,
+                                metadataStore
+                        ),
+                        "Metadata-Writer"
+                );
+
+        metadataWriterThread.start();
+
+        /*
+         * Thread Pool for Backup Workers
+         */
         ExecutorService executor =
                 Executors.newFixedThreadPool(NUMBER_OF_WORKERS);
 
@@ -46,24 +77,31 @@ public class BackupManager {
 
             executor.submit(
                     new BackupWorker(
-                            queue,
+                            fileQueue,
+                            metadataQueue,
                             deduplicationEngine,
-                            compressionManager,
-                            metadataStore
+                            compressionManager
                     )
             );
 
         }
 
+        /*
+         * Scan the directory and enqueue files
+         */
         DirectoryScanner scanner = new DirectoryScanner();
 
-        scanner.scan(Path.of(folderPath), queue);
+        scanner.scan(Path.of(folderPath), fileQueue);
 
-        // Send Poison Pills
+        /*
+         * Signal workers to stop
+         */
         try {
 
             for (int i = 0; i < NUMBER_OF_WORKERS; i++) {
-                queue.put(FileTask.POISON_PILL);
+
+                fileQueue.put(FileTask.POISON_PILL);
+
             }
 
         } catch (InterruptedException e) {
@@ -72,6 +110,9 @@ public class BackupManager {
 
         }
 
+        /*
+         * Wait for all workers
+         */
         executor.shutdown();
 
         try {
@@ -89,10 +130,35 @@ public class BackupManager {
 
         }
 
+        /*
+         * Tell Metadata Writer that no more metadata is coming
+         */
+        try {
+
+            metadataQueue.put(MetadataWriter.POISON);
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread().interrupt();
+
+        }
+
+        /*
+         * Wait for Metadata Writer to finish
+         */
+        try {
+
+            metadataWriterThread.join();
+
+        } catch (InterruptedException e) {
+
+            Thread.currentThread().interrupt();
+
+        }
+
         System.out.println();
         System.out.println("======================================");
         System.out.println(" Backup Completed Successfully");
         System.out.println("======================================");
     }
-
 }

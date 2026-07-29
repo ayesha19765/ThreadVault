@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path; 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -63,7 +63,7 @@ public class MetadataStore {
 
     }
 
-    public synchronized void save(FileMetadata metadata) {
+    public synchronized void saveMetadata(FileMetadata metadata) {
 
         metadataList.add(metadata);
 
