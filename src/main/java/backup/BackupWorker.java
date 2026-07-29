@@ -1,9 +1,11 @@
 package backup;
 
+import compression.CompressionManager;
 import dedup.DeduplicationEngine;
 import dedup.HashCalculator;
 import scanner.FileTask;
 
+import java.nio.file.Path;
 import java.util.concurrent.BlockingQueue;
 
 public class BackupWorker implements Runnable {
@@ -11,13 +13,15 @@ public class BackupWorker implements Runnable {
     private final BlockingQueue<FileTask> queue;
     private final DeduplicationEngine dedupEngine;
     private final HashCalculator hashCalculator;
-
+    private final CompressionManager compressionManager;
     public BackupWorker(
             BlockingQueue<FileTask> queue,
             DeduplicationEngine dedupEngine) {
 
         this.queue = queue;
         this.dedupEngine = dedupEngine;
+        this.compressionManager =
+                new CompressionManager();
         this.hashCalculator = new HashCalculator();
     }
 
@@ -73,13 +77,15 @@ public class BackupWorker implements Runnable {
 
             } else {
 
-                System.out.printf(
-                        "[%s] Backing Up : %s%n",
-                        workerName,
-                        task.getFilePath().getFileName());
+                Path backupLocation =
+                        compressionManager.compress(
+                                task.getFilePath(),
+                                hash);
 
-                // Simulate backup work
-                Thread.sleep(300);
+                System.out.printf(
+                        "[%s] Stored %s%n",
+                        workerName,
+                        backupLocation.getFileName());
 
             }
 
