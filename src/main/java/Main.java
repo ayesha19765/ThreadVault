@@ -3,15 +3,29 @@
 
 import backup.BackupManager;
 import restore.RestoreManager;
+import scheduler.BackupScheduler;
 
 public class Main {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
 
         BackupManager manager =
                 new BackupManager();
 
-        manager.startBackup("sample_data");
+        BackupScheduler scheduler =
+                new BackupScheduler();
+
+        scheduler.start(
+
+                manager,
+
+                "sample_data",
+
+                30
+
+        );
+
+        Thread.currentThread().join();
 
         RestoreManager restoreManager =
                 new RestoreManager();
