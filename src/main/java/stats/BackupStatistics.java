@@ -23,9 +23,18 @@ public class BackupStatistics {
     private final LongAdder compressedBytes =
             new LongAdder();
 
+    private final AtomicInteger failedFiles =
+            new AtomicInteger();
+
     public void fileScanned() {
 
         filesScanned.incrementAndGet();
+
+    }
+
+    public void fileFailed() {
+
+        failedFiles.incrementAndGet();
 
     }
 
@@ -86,6 +95,12 @@ public class BackupStatistics {
     public long getCompressedBytes() {
 
         return compressedBytes.sum();
+
+    }
+
+    public int getFailedFiles() {
+
+        return failedFiles.get();
 
     }
 

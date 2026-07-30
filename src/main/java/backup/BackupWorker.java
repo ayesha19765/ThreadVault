@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.concurrent.BlockingQueue;
+
 import incremental.IncrementalBackupEngine;
 import stats.BackupStatistics;
 
@@ -25,6 +26,7 @@ public class BackupWorker implements Runnable {
     private final IncrementalBackupEngine incrementalBackupEngine;
     private final HashCalculator hashCalculator;
     private final BackupStatistics statistics;
+    private static final int MAX_RETRIES = 3;
 
     public BackupWorker(
             BlockingQueue<FileTask> fileQueue,
@@ -71,96 +73,135 @@ public class BackupWorker implements Runnable {
         }
     }
 
-    private void processFile(FileTask task, String workerName) {
+    private void processFile(FileTask task, String workerName) throws InterruptedException {
+        int attempts = 0;
         statistics.fileScanned();
-        try {
-            if (!incrementalBackupEngine.shouldBackup(
-                    task.getFilePath())) {
+        while (attempts < MAX_RETRIES) {
+            try {
+                if (!incrementalBackupEngine.shouldBackup(
+                        task.getFilePath())) {
 
-                System.out.printf(
-                        "[%s] Unchanged : %s%n",
-                        workerName,
-                        task.getFilePath().getFileName());
-                statistics.incrementalSkipped();
-                return;
-            }
-            // Calculate SHA-256
-            String hash = hashCalculator.calculateSHA256(
-                    task.getFilePath()
-            );
-
-            // Check if already backed up
-            boolean duplicate = deduplicationEngine.isDuplicate(
-                    hash,
-                    task.getFilePath()
-            );
-
-            if (duplicate) {
-
-                System.out.printf(
-                        "[%s] Duplicate Skipped : %s%n",
-                        workerName,
-                        task.getFilePath().getFileName()
+                    System.out.printf(
+                            "[%s] Unchanged : %s%n",
+                            workerName,
+                            task.getFilePath().getFileName());
+                    statistics.incrementalSkipped();
+                    return;
+                }
+                // Calculate SHA-256
+                String hash = hashCalculator.calculateSHA256(
+                        task.getFilePath()
                 );
-                statistics.duplicateSkipped();
-                return;
-            }
 
-            // Compress file
-            Path backupLocation = compressionManager.compress(
-                    task.getFilePath(),
-                    hash
-            );
+                // Check if already backed up
+                boolean duplicate = deduplicationEngine.isDuplicate(
+                        hash,
+                        task.getFilePath()
+                );
 
-            // Create metadata
-            FileMetadata metadata =
-                    new FileMetadata(
+                if (duplicate) {
 
-                            task.getFilePath().toString(),
+                    System.out.printf(
+                            "[%s] Duplicate Skipped : %s%n",
+                            workerName,
+                            task.getFilePath().getFileName()
+                    );
+                    statistics.duplicateSkipped();
+                    return;
+                }
 
-                            hash,
+                // Compress file
+                Path backupLocation = compressionManager.compress(
+                        task.getFilePath(),
+                        hash
+                );
 
-                            backupLocation.toString(),
+                // Create metadata
+                FileMetadata metadata =
+                        new FileMetadata(
 
-                            task.getSize(),
+                                task.getFilePath().toString(),
 
-                            Files.size(backupLocation),
+                                hash,
 
-                            LocalDateTime.now().toString(),
+                                backupLocation.toString(),
 
-                            Files.getLastModifiedTime(
-                                            task.getFilePath())
-                                    .toMillis(),
+                                task.getSize(),
 
-                            false
+                                Files.size(backupLocation),
+
+                                LocalDateTime.now().toString(),
+
+                                Files.getLastModifiedTime(
+                                                task.getFilePath())
+                                        .toMillis(),
+
+                                false
+                        );
+
+                // Send metadata to metadata writer
+                metadataQueue.put(metadata);
+
+                statistics.fileBackedUp(
+
+                        task.getSize(),
+
+                        Files.size(backupLocation)
+
+                );
+                System.out.printf(
+                        "[%s] Backed Up : %s -> %s%n",
+                        workerName,
+                        task.getFilePath().getFileName(),
+                        backupLocation.getFileName()
+                );
+
+            } catch (Exception e) {
+                Thread.sleep(
+                        (long) Math.pow(2, attempts) * 500
+                );
+                attempts++;
+
+                System.err.printf(
+
+                        "[%s] Retry %d/%d : %s%n",
+
+                        workerName,
+
+                        attempts,
+
+                        MAX_RETRIES,
+
+                        task.getFilePath().getFileName()
+
+                );
+
+                if (attempts == MAX_RETRIES) {
+                    statistics.fileFailed();
+                    System.out.println(
+
+                            "Failed Files        : "
+
+                                    + statistics.getFailedFiles()
+
                     );
 
-            // Send metadata to metadata writer
-            metadataQueue.put(metadata);
+                    System.err.printf(
 
-            statistics.fileBackedUp(
+                            "[%s] FAILED : %s%n",
 
-                    task.getSize(),
+                            workerName,
 
-                    Files.size(backupLocation)
+                            task.getFilePath()
 
-            );
-            System.out.printf(
-                    "[%s] Backed Up : %s -> %s%n",
-                    workerName,
-                    task.getFilePath().getFileName(),
-                    backupLocation.getFileName()
-            );
+                    );
 
-        } catch (Exception e) {
 
-            System.err.printf(
-                    "[%s] Failed to process %s%n",
-                    workerName,
-                    task.getFilePath()
-            );
 
-            e.printStackTrace();
+                }
+
+            }
+
         }
     }
 }
