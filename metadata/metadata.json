@@ -1,0 +1,57 @@
+[ {
+  "originalPath" : "sample_data/.DS_Store",
+  "hash" : "d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3",
+  "backupPath" : "backup_storage/d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3.zip",
+  "originalSize" : 6148,
+  "compressedSize" : 310,
+  "backupTime" : "2026-07-30T00:06:04.307214"
+}, {
+  "originalPath" : "sample_data/sample.pdf",
+  "hash" : "229defbb0cee6f02673a5cde290d0673e75a0dc31cec43989c8ab2a4eca7e1bb",
+  "backupPath" : "backup_storage/229defbb0cee6f02673a5cde290d0673e75a0dc31cec43989c8ab2a4eca7e1bb.zip",
+  "originalSize" : 18810,
+  "compressedSize" : 16209,
+  "backupTime" : "2026-07-30T00:06:04.307654"
+}, {
+  "originalPath" : "sample_data/sample_jpg_image.jpg",
+  "hash" : "34bc795c2f55aa63cd1767344272dbbe0c2bd455f3204aaee08f1b0d84196a92",
+  "backupPath" : "backup_storage/34bc795c2f55aa63cd1767344272dbbe0c2bd455f3204aaee08f1b0d84196a92.zip",
+  "originalSize" : 146490,
+  "compressedSize" : 141194,
+  "backupTime" : "2026-07-30T00:06:04.312817"
+}, {
+  "originalPath" : "sample_data/sample_png_image.png",
+  "hash" : "76ebf60e48796a7122568cff722b3b56710f88405da3abb1cc4731f1400258c4",
+  "backupPath" : "backup_storage/76ebf60e48796a7122568cff722b3b56710f88405da3abb1cc4731f1400258c4.zip",
+  "originalSize" : 365638,
+  "compressedSize" : 364238,
+  "backupTime" : "2026-07-30T00:06:04.323080"
+}, {
+  "originalPath" : "sample_data/.DS_Store",
+  "hash" : "d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3",
+  "backupPath" : "backup_storage/d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3.zip",
+  "originalSize" : 6148,
+  "compressedSize" : 310,
+  "backupTime" : "2026-07-30T00:06:11.166431"
+}, {
+  "originalPath" : "sample_data/sample.pdf",
+  "hash" : "229defbb0cee6f02673a5cde290d0673e75a0dc31cec43989c8ab2a4eca7e1bb",
+  "backupPath" : "backup_storage/229defbb0cee6f02673a5cde290d0673e75a0dc31cec43989c8ab2a4eca7e1bb.zip",
+  "originalSize" : 18810,
+  "compressedSize" : 16209,
+  "backupTime" : "2026-07-30T00:06:11.168904"
+}, {
+  "originalPath" : "sample_data/sample_jpg_image.jpg",
+  "hash" : "34bc795c2f55aa63cd1767344272dbbe0c2bd455f3204aaee08f1b0d84196a92",
+  "backupPath" : "backup_storage/34bc795c2f55aa63cd1767344272dbbe0c2bd455f3204aaee08f1b0d84196a92.zip",
+  "originalSize" : 146490,
+  "compressedSize" : 141194,
+  "backupTime" : "2026-07-30T00:06:11.176055"
+}, {
+  "originalPath" : "sample_data/sample_png_image.png",
+  "hash" : "76ebf60e48796a7122568cff722b3b56710f88405da3abb1cc4731f1400258c4",
+  "backupPath" : "backup_storage/76ebf60e48796a7122568cff722b3b56710f88405da3abb1cc4731f1400258c4.zip",
+  "originalSize" : 365638,
+  "compressedSize" : 364238,
+  "backupTime" : "2026-07-30T00:06:11.181145"
+} ]

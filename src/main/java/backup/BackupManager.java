@@ -1,6 +1,8 @@
 package backup;
 
+import compression.CompressionManager;
 import dedup.DeduplicationEngine;
+import metadata.MetadataStore;
 import scanner.DirectoryScanner;
 import scanner.FileTask;
 
@@ -24,30 +26,40 @@ public class BackupManager {
         System.out.println("Scanning Folder : " + folderPath);
         System.out.println();
 
-        // Shared queue between scanner and workers
         BlockingQueue<FileTask> queue =
                 new ArrayBlockingQueue<>(QUEUE_CAPACITY);
 
-        // Shared deduplication engine
-        DeduplicationEngine dedupEngine =
+        // Shared Components
+        DeduplicationEngine deduplicationEngine =
                 new DeduplicationEngine();
 
-        // Thread Pool
+        CompressionManager compressionManager =
+                new CompressionManager();
+
+        MetadataStore metadataStore =
+                new MetadataStore();
+
         ExecutorService executor =
                 Executors.newFixedThreadPool(NUMBER_OF_WORKERS);
 
-        // Start workers
         for (int i = 0; i < NUMBER_OF_WORKERS; i++) {
+
             executor.submit(
-                    new BackupWorker(queue, dedupEngine)
+                    new BackupWorker(
+                            queue,
+                            deduplicationEngine,
+                            compressionManager,
+                            metadataStore
+                    )
             );
+
         }
 
-        // Scan files
         DirectoryScanner scanner = new DirectoryScanner();
+
         scanner.scan(Path.of(folderPath), queue);
 
-        // Tell every worker to stop
+        // Send Poison Pills
         try {
 
             for (int i = 0; i < NUMBER_OF_WORKERS; i++) {
@@ -55,7 +67,9 @@ public class BackupManager {
             }
 
         } catch (InterruptedException e) {
+
             Thread.currentThread().interrupt();
+
         }
 
         executor.shutdown();
@@ -80,4 +94,5 @@ public class BackupManager {
         System.out.println(" Backup Completed Successfully");
         System.out.println("======================================");
     }
+
 }
