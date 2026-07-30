@@ -10,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.concurrent.BlockingQueue;
+import incremental.IncrementalBackupEngine;
+import java.nio.file.attribute.FileTime;
 
 public class BackupWorker implements Runnable {
 
@@ -18,19 +20,21 @@ public class BackupWorker implements Runnable {
 
     private final DeduplicationEngine deduplicationEngine;
     private final CompressionManager compressionManager;
+    private final IncrementalBackupEngine incrementalBackupEngine;
     private final HashCalculator hashCalculator;
 
     public BackupWorker(
             BlockingQueue<FileTask> fileQueue,
             BlockingQueue<FileMetadata> metadataQueue,
             DeduplicationEngine deduplicationEngine,
-            CompressionManager compressionManager
+            CompressionManager compressionManager, IncrementalBackupEngine incrementalBackupEngine
     ) {
 
         this.fileQueue = fileQueue;
         this.metadataQueue = metadataQueue;
         this.deduplicationEngine = deduplicationEngine;
         this.compressionManager = compressionManager;
+        this.incrementalBackupEngine = incrementalBackupEngine;
         this.hashCalculator = new HashCalculator();
     }
 
@@ -65,7 +69,16 @@ public class BackupWorker implements Runnable {
     private void processFile(FileTask task, String workerName) {
 
         try {
+            if (!incrementalBackupEngine.shouldBackup(
+                    task.getFilePath())) {
 
+                System.out.printf(
+                        "[%s] Unchanged : %s%n",
+                        workerName,
+                        task.getFilePath().getFileName());
+
+                return;
+            }
             // Calculate SHA-256
             String hash = hashCalculator.calculateSHA256(
                     task.getFilePath()
@@ -95,14 +108,27 @@ public class BackupWorker implements Runnable {
             );
 
             // Create metadata
-            FileMetadata metadata = new FileMetadata(
-                    task.getFilePath().toString(),
-                    hash,
-                    backupLocation.toString(),
-                    task.getSize(),
-                    Files.size(backupLocation),
-                    LocalDateTime.now().toString()
-            );
+            FileMetadata metadata =
+                    new FileMetadata(
+
+                            task.getFilePath().toString(),
+
+                            hash,
+
+                            backupLocation.toString(),
+
+                            task.getSize(),
+
+                            Files.size(backupLocation),
+
+                            LocalDateTime.now().toString(),
+
+                            Files.getLastModifiedTime(
+                                            task.getFilePath())
+                                    .toMillis(),
+
+                            false
+                    );
 
             // Send metadata to metadata writer
             metadataQueue.put(metadata);

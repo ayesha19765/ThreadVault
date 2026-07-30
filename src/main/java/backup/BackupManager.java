@@ -14,6 +14,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import incremental.IncrementalBackupEngine;
 
 public class BackupManager {
 
@@ -53,6 +54,11 @@ public class BackupManager {
         MetadataStore metadataStore =
                 new MetadataStore();
 
+        IncrementalBackupEngine incrementalBackupEngine =
+                new IncrementalBackupEngine(
+                        metadataStore
+                );
+
         /*
          * Dedicated Metadata Writer Thread
          */
@@ -80,7 +86,8 @@ public class BackupManager {
                             fileQueue,
                             metadataQueue,
                             deduplicationEngine,
-                            compressionManager
+                            compressionManager,
+                            incrementalBackupEngine
                     )
             );
 
