@@ -7,7 +7,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MetadataStore {
 
@@ -19,7 +21,8 @@ public class MetadataStore {
 
     private final ObjectMapper mapper;
 
-    private final List<FileMetadata> metadataList;
+    private final ConcurrentHashMap<String, FileMetadata>
+            metadataIndex;
 
     public MetadataStore() {
 
@@ -37,43 +40,66 @@ public class MetadataStore {
 
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
 
-        metadataList = loadMetadata();
+        metadataIndex = loadMetadata();
 
     }
 
-    private List<FileMetadata> loadMetadata() {
+    private ConcurrentHashMap<String, FileMetadata> loadMetadata() {
+
+        ConcurrentHashMap<String, FileMetadata> index =
+                new ConcurrentHashMap<>();
 
         if (!Files.exists(METADATA_FILE))
-            return new ArrayList<>();
+            return index;
 
         try {
 
-            return mapper.readValue(
-                    METADATA_FILE.toFile(),
-                    mapper.getTypeFactory()
-                            .constructCollectionType(
-                                    List.class,
-                                    FileMetadata.class));
+            List<FileMetadata> metadataList =
+                    mapper.readValue(
+                            METADATA_FILE.toFile(),
+                            mapper.getTypeFactory()
+                                    .constructCollectionType(
+                                            List.class,
+                                            FileMetadata.class));
+
+            for (FileMetadata metadata : metadataList) {
+
+                index.put(
+                        metadata.getOriginalPath(),
+                        metadata
+                );
+
+            }
 
         } catch (IOException e) {
 
-            return new ArrayList<>();
+            return index;
 
         }
 
+        return index;
     }
 
     public synchronized void saveMetadata(FileMetadata metadata) {
 
-        metadataList.add(metadata);
+        metadataIndex.put(
+                metadata.getOriginalPath(),
+                metadata
+        );
 
         try {
 
             mapper.writeValue(
-                    METADATA_FILE.toFile(),
-                    metadataList);
 
-        } catch (IOException e) {
+                    METADATA_FILE.toFile(),
+
+                    metadataIndex.values()
+
+            );
+
+        }
+
+        catch (IOException e) {
 
             throw new RuntimeException(e);
 
@@ -82,7 +108,24 @@ public class MetadataStore {
     }
 
     public List<FileMetadata> getAllMetadata() {
-        return new ArrayList<>(metadataList);
+
+        return new ArrayList<>(
+                metadataIndex.values());
+
     }
 
+    public FileMetadata getMetadata(
+            String originalPath) {
+
+        return metadataIndex.get(originalPath);
+
+    }
+
+    public boolean contains(
+            String originalPath) {
+
+        return metadataIndex.containsKey(
+                originalPath);
+
+    }
 }

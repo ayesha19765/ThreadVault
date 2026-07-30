@@ -10,20 +10,12 @@ import java.util.Map;
 
 public class IncrementalBackupEngine {
 
-    private final Map<String, FileMetadata> previousBackups =
-            new HashMap<>();
+    private final MetadataStore metadataStore;
 
     public IncrementalBackupEngine(
             MetadataStore metadataStore) {
 
-        for (FileMetadata metadata :
-                metadataStore.getAllMetadata()) {
-
-            previousBackups.put(
-                    metadata.getOriginalPath(),
-                    metadata);
-
-        }
+        this.metadataStore = metadataStore;
 
     }
 
@@ -31,7 +23,8 @@ public class IncrementalBackupEngine {
             throws Exception {
 
         FileMetadata previous =
-                previousBackups.get(file.toString());
+                metadataStore.getMetadata(
+                        file.toString());
 
         if (previous == null)
             return true;
