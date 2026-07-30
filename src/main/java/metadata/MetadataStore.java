@@ -81,4 +81,8 @@ public class MetadataStore {
 
     }
 
+    public List<FileMetadata> getAllMetadata() {
+        return new ArrayList<>(metadataList);
+    }
+
 }
