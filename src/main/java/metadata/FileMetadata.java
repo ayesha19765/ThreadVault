@@ -8,6 +8,8 @@ public class FileMetadata {
     private long originalSize;
     private long compressedSize;
     private String backupTime;
+    private long lastModifiedTime;
+    private boolean deleted;
 
     public FileMetadata() {
     }
@@ -18,7 +20,10 @@ public class FileMetadata {
             String backupPath,
             long originalSize,
             long compressedSize,
-            String backupTime) {
+            String backupTime,
+            long lastModifiedTime,
+            boolean deleted
+    ) {
 
         this.originalPath = originalPath;
         this.hash = hash;
@@ -26,6 +31,8 @@ public class FileMetadata {
         this.originalSize = originalSize;
         this.compressedSize = compressedSize;
         this.backupTime = backupTime;
+        this.lastModifiedTime = lastModifiedTime;
+        this.deleted = deleted;
     }
 
     public String getOriginalPath() {
@@ -51,4 +58,13 @@ public class FileMetadata {
     public String getBackupTime() {
         return backupTime;
     }
+
+    public long getLastModifiedTime() {
+        return lastModifiedTime;
+    }
+
+    public boolean isDeleted() {
+        return deleted;
+    }
+
 }
