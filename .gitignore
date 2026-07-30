@@ -37,3 +37,12 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Sample Data
+/sample_data/
+
+#### Meta-Data
+metadata/metadata.json
+
+### Backup Data
+/backup_storage/
