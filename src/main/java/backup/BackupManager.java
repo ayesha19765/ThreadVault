@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import incremental.IncrementalBackupEngine;
+import stats.BackupStatistics;
 
 public class BackupManager {
 
@@ -54,6 +55,9 @@ public class BackupManager {
         MetadataStore metadataStore =
                 new MetadataStore();
 
+        BackupStatistics statistics =
+                new BackupStatistics();
+
         IncrementalBackupEngine incrementalBackupEngine =
                 new IncrementalBackupEngine(
                         metadataStore
@@ -87,7 +91,8 @@ public class BackupManager {
                             metadataQueue,
                             deduplicationEngine,
                             compressionManager,
-                            incrementalBackupEngine
+                            incrementalBackupEngine,
+                            statistics
                     )
             );
 
@@ -163,6 +168,48 @@ public class BackupManager {
 
         }
 
+        System.out.println();
+        System.out.println("========== Backup Statistics ==========");
+
+        System.out.println(
+                "Files Scanned        : "
+                        + statistics.getFilesScanned());
+
+        System.out.println(
+                "Files Backed Up      : "
+                        + statistics.getFilesBackedUp());
+
+        System.out.println(
+                "Duplicates Skipped   : "
+                        + statistics.getDuplicatesSkipped());
+
+        System.out.println(
+                "Incremental Skipped  : "
+                        + statistics.getIncrementalSkipped());
+
+        System.out.println(
+                "Original Size (Bytes): "
+                        + statistics.getOriginalBytes());
+
+        System.out.println(
+                "Compressed Size(Bytes): "
+                        + statistics.getCompressedBytes());
+
+        double ratio = 100.0;
+
+        if (statistics.getOriginalBytes() != 0) {
+
+            ratio = (statistics.getCompressedBytes() * 100.0)
+                    / statistics.getOriginalBytes();
+
+        }
+
+        System.out.printf(
+                "Compression Ratio    : %.2f%%%n",
+                ratio);
+
+        System.out.println("=======================================");
+        
         System.out.println();
         System.out.println("======================================");
         System.out.println(" Backup Completed Successfully");

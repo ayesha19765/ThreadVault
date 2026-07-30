@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.concurrent.BlockingQueue;
 import incremental.IncrementalBackupEngine;
+import stats.BackupStatistics;
+
 import java.nio.file.attribute.FileTime;
 
 public class BackupWorker implements Runnable {
@@ -22,12 +24,14 @@ public class BackupWorker implements Runnable {
     private final CompressionManager compressionManager;
     private final IncrementalBackupEngine incrementalBackupEngine;
     private final HashCalculator hashCalculator;
+    private final BackupStatistics statistics;
 
     public BackupWorker(
             BlockingQueue<FileTask> fileQueue,
             BlockingQueue<FileMetadata> metadataQueue,
             DeduplicationEngine deduplicationEngine,
-            CompressionManager compressionManager, IncrementalBackupEngine incrementalBackupEngine
+            CompressionManager compressionManager, IncrementalBackupEngine incrementalBackupEngine,
+            BackupStatistics statistics
     ) {
 
         this.fileQueue = fileQueue;
@@ -36,6 +40,7 @@ public class BackupWorker implements Runnable {
         this.compressionManager = compressionManager;
         this.incrementalBackupEngine = incrementalBackupEngine;
         this.hashCalculator = new HashCalculator();
+        this.statistics = statistics;
     }
 
     @Override
@@ -67,7 +72,7 @@ public class BackupWorker implements Runnable {
     }
 
     private void processFile(FileTask task, String workerName) {
-
+        statistics.fileScanned();
         try {
             if (!incrementalBackupEngine.shouldBackup(
                     task.getFilePath())) {
@@ -76,7 +81,7 @@ public class BackupWorker implements Runnable {
                         "[%s] Unchanged : %s%n",
                         workerName,
                         task.getFilePath().getFileName());
-
+                statistics.incrementalSkipped();
                 return;
             }
             // Calculate SHA-256
@@ -97,7 +102,7 @@ public class BackupWorker implements Runnable {
                         workerName,
                         task.getFilePath().getFileName()
                 );
-
+                statistics.duplicateSkipped();
                 return;
             }
 
@@ -133,6 +138,13 @@ public class BackupWorker implements Runnable {
             // Send metadata to metadata writer
             metadataQueue.put(metadata);
 
+            statistics.fileBackedUp(
+
+                    task.getSize(),
+
+                    Files.size(backupLocation)
+
+            );
             System.out.printf(
                     "[%s] Backed Up : %s -> %s%n",
                     workerName,
