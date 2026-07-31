@@ -1,75 +1,137 @@
 package compression;
 
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+/**
+ * Handles compression of files into ZIP format.
+ *
+ * Compressed files are stored using their hash as
+ * the filename, enabling content-addressable storage
+ * and deduplication.
+ */
 public class CompressionManager {
 
-    private static final Path BACKUP_DIRECTORY =
+    private static final Path BACKUP_FOLDER =
             Path.of("backup_storage");
+
+    private static final int BUFFER_SIZE = 8192;
 
     public CompressionManager() {
 
         try {
 
-            Files.createDirectories(BACKUP_DIRECTORY);
+            Files.createDirectories(BACKUP_FOLDER);
 
         } catch (IOException e) {
 
-            throw new RuntimeException(e);
+            throw new RuntimeException(
+                    "Unable to create backup directory: "
+                            + BACKUP_FOLDER,
+                    e
+            );
 
         }
 
     }
 
-    public Path compress(Path sourceFile,
-                         String hash) {
+    /**
+     * Compresses a source file into ZIP format.
+     *
+     * The generated ZIP filename is based on the
+     * file hash, allowing duplicate content to share
+     * the same backup object.
+     *
+     * @param sourceFile file to compress
+     * @param hash content hash used as backup identity
+     * @return path of the compressed backup file
+     */
+    public Path compress(
+            Path sourceFile,
+            String hash
+    ) {
+
+        if (!Files.exists(sourceFile)) {
+
+            throw new RuntimeException(
+                    "Source file does not exist: "
+                            + sourceFile
+            );
+
+        }
 
         Path zipFile =
-                BACKUP_DIRECTORY.resolve(hash + ".zip");
+                BACKUP_FOLDER.resolve(hash + ".zip");
 
-        if (Files.exists(zipFile))
+
+        /*
+         * Already compressed content exists.
+         * Reuse it for deduplication.
+         */
+        if (Files.exists(zipFile)) {
+
             return zipFile;
 
-        try (
-                FileInputStream fis =
-                        new FileInputStream(sourceFile.toFile());
+        }
 
-                FileOutputStream fos =
-                        new FileOutputStream(zipFile.toFile());
+
+        try (
+                InputStream input =
+                        Files.newInputStream(sourceFile);
+
+                OutputStream output =
+                        Files.newOutputStream(zipFile);
 
                 ZipOutputStream zos =
-                        new ZipOutputStream(fos)
+                        new ZipOutputStream(output)
+
         ) {
 
             ZipEntry entry =
                     new ZipEntry(
-                            sourceFile.getFileName().toString());
+                            sourceFile.getFileName()
+                                    .toString()
+                    );
+
 
             zos.putNextEntry(entry);
 
-            byte[] buffer = new byte[8192];
+
+            byte[] buffer =
+                    new byte[BUFFER_SIZE];
+
 
             int bytesRead;
 
-            while ((bytesRead = fis.read(buffer)) != -1) {
+            while ((bytesRead = input.read(buffer)) != -1) {
 
-                zos.write(buffer, 0, bytesRead);
+                zos.write(
+                        buffer,
+                        0,
+                        bytesRead
+                );
 
             }
 
+
             zos.closeEntry();
+
 
             return zipFile;
 
+
         } catch (IOException e) {
 
-            throw new RuntimeException(e);
+            throw new RuntimeException(
+                    "Failed to compress file: "
+                            + sourceFile,
+                    e
+            );
 
         }
 
