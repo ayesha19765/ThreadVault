@@ -2,26 +2,29 @@ package backup;
 
 import compression.CompressionManager;
 import dedup.DeduplicationEngine;
+import incremental.IncrementalBackupEngine;
 import metadata.FileMetadata;
 import metadata.MetadataStore;
 import metadata.MetadataWriter;
 import scanner.DirectoryScanner;
 import scanner.FileTask;
+import stats.BackupStatistics;
 
 import java.nio.file.Path;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import incremental.IncrementalBackupEngine;
-import stats.BackupStatistics;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class BackupManager {
 
     private static final int NUMBER_OF_WORKERS = 4;
     private static final int FILE_QUEUE_CAPACITY = 100;
     private static final int METADATA_QUEUE_CAPACITY = 100;
+    private static final long WORKER_TIMEOUT_MINUTES = 5;
 
     public void startBackup(String folderPath) {
 
@@ -32,41 +35,39 @@ public class BackupManager {
         System.out.println();
 
         /*
-         * Queue containing files waiting to be backed up
+         * Queue containing files waiting to be backed up.
          */
-        BlockingQueue<FileTask> fileQueue =
+        final BlockingQueue<FileTask> fileQueue =
                 new ArrayBlockingQueue<>(FILE_QUEUE_CAPACITY);
 
         /*
-         * Queue containing metadata waiting to be written
+         * Queue containing metadata waiting to be written.
          */
-        BlockingQueue<FileMetadata> metadataQueue =
+        final BlockingQueue<FileMetadata> metadataQueue =
                 new ArrayBlockingQueue<>(METADATA_QUEUE_CAPACITY);
 
         /*
-         * Shared Components
+         * Shared components used by all workers.
          */
-        DeduplicationEngine deduplicationEngine =
+        final DeduplicationEngine deduplicationEngine =
                 new DeduplicationEngine();
 
-        CompressionManager compressionManager =
+        final CompressionManager compressionManager =
                 new CompressionManager();
 
-        MetadataStore metadataStore =
+        final MetadataStore metadataStore =
                 new MetadataStore();
 
-        BackupStatistics statistics =
+        final BackupStatistics statistics =
                 new BackupStatistics();
 
-        IncrementalBackupEngine incrementalBackupEngine =
-                new IncrementalBackupEngine(
-                        metadataStore
-                );
+        final IncrementalBackupEngine incrementalBackupEngine =
+                new IncrementalBackupEngine(metadataStore);
 
         /*
-         * Dedicated Metadata Writer Thread
+         * Dedicated metadata writer thread.
          */
-        Thread metadataWriterThread =
+        final Thread metadataWriterThread =
                 new Thread(
                         new MetadataWriter(
                                 metadataQueue,
@@ -78,10 +79,29 @@ public class BackupManager {
         metadataWriterThread.start();
 
         /*
-         * Thread Pool for Backup Workers
+         * Custom thread names for backup workers.
          */
-        ExecutorService executor =
-                Executors.newFixedThreadPool(NUMBER_OF_WORKERS);
+        final AtomicInteger workerCounter = new AtomicInteger(1);
+
+        ThreadFactory threadFactory = runnable -> {
+
+            Thread thread = new Thread(runnable);
+
+            thread.setName(
+                    "BackupWorker-" + workerCounter.getAndIncrement()
+            );
+
+            return thread;
+        };
+
+        /*
+         * Thread pool for backup workers.
+         */
+        final ExecutorService executor =
+                Executors.newFixedThreadPool(
+                        NUMBER_OF_WORKERS,
+                        threadFactory
+                );
 
         for (int i = 0; i < NUMBER_OF_WORKERS; i++) {
 
@@ -99,14 +119,14 @@ public class BackupManager {
         }
 
         /*
-         * Scan the directory and enqueue files
+         * Scan the directory and enqueue files.
          */
-        DirectoryScanner scanner = new DirectoryScanner();
+        final DirectoryScanner scanner = new DirectoryScanner();
 
         scanner.scan(Path.of(folderPath), fileQueue);
 
         /*
-         * Signal workers to stop
+         * Signal workers to stop.
          */
         try {
 
@@ -123,13 +143,15 @@ public class BackupManager {
         }
 
         /*
-         * Wait for all workers
+         * Wait for all backup workers.
          */
         executor.shutdown();
 
         try {
 
-            if (!executor.awaitTermination(5, TimeUnit.MINUTES)) {
+            if (!executor.awaitTermination(
+                    WORKER_TIMEOUT_MINUTES,
+                    TimeUnit.MINUTES)) {
 
                 executor.shutdownNow();
 
@@ -143,7 +165,8 @@ public class BackupManager {
         }
 
         /*
-         * Tell Metadata Writer that no more metadata is coming
+         * Notify metadata writer that all metadata
+         * has been produced.
          */
         try {
 
@@ -156,7 +179,7 @@ public class BackupManager {
         }
 
         /*
-         * Wait for Metadata Writer to finish
+         * Wait for metadata writer to finish.
          */
         try {
 
@@ -168,51 +191,16 @@ public class BackupManager {
 
         }
 
-        System.out.println();
-        System.out.println("========== Backup Statistics ==========");
-
-        System.out.println(
-                "Files Scanned        : "
-                        + statistics.getFilesScanned());
-
-        System.out.println(
-                "Files Backed Up      : "
-                        + statistics.getFilesBackedUp());
-
-        System.out.println(
-                "Duplicates Skipped   : "
-                        + statistics.getDuplicatesSkipped());
-
-        System.out.println(
-                "Incremental Skipped  : "
-                        + statistics.getIncrementalSkipped());
-
-        System.out.println(
-                "Original Size (Bytes): "
-                        + statistics.getOriginalBytes());
-
-        System.out.println(
-                "Compressed Size(Bytes): "
-                        + statistics.getCompressedBytes());
-
-        double ratio = 100.0;
-
-        if (statistics.getOriginalBytes() != 0) {
-
-            ratio = (statistics.getCompressedBytes() * 100.0)
-                    / statistics.getOriginalBytes();
-
-        }
-
-        System.out.printf(
-                "Compression Ratio    : %.2f%%%n",
-                ratio);
-
-        System.out.println("=======================================");
+        /*
+         * Print backup summary.
+         */
+        statistics.printSummary();
 
         System.out.println();
         System.out.println("======================================");
         System.out.println(" Backup Completed Successfully");
         System.out.println("======================================");
+
     }
+
 }
