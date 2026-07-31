@@ -5,10 +5,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.BlockingQueue;
 
+/**
+ * Recursively scans a directory and publishes
+ * discovered files into a blocking queue.
+ *
+ * Acts as the producer in the backup pipeline.
+ */
 public class DirectoryScanner {
 
-    public void scan(Path root,
-                     BlockingQueue<FileTask> queue) {
+    public void scan(
+            Path root,
+            BlockingQueue<FileTask> queue
+    ) {
 
         try (var paths = Files.walk(root)) {
 
@@ -20,11 +28,25 @@ public class DirectoryScanner {
                             queue.put(
                                     new FileTask(
                                             path,
-                                            Files.size(path)));
+                                            Files.size(path)
+                                    )
+                            );
 
-                        } catch (Exception e) {
+                        } catch (IOException e) {
 
-                            e.printStackTrace();
+                            System.err.println(
+                                    "Unable to read file size: "
+                                            + path
+                            );
+
+                        } catch (InterruptedException e) {
+
+                            System.err.println(
+                                    "Directory scanner interrupted."
+                            );
+
+                            Thread.currentThread()
+                                    .interrupt();
 
                         }
 
@@ -32,7 +54,11 @@ public class DirectoryScanner {
 
         } catch (IOException e) {
 
-            throw new RuntimeException(e);
+            throw new RuntimeException(
+                    "Unable to scan directory: "
+                            + root,
+                    e
+            );
 
         }
 
