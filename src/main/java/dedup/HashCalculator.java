@@ -6,7 +6,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 
+/**
+ * Calculates SHA-256 hash of a file.
+ *
+ * Uses streaming reads so large files can be
+ * processed without loading the entire file
+ * into memory.
+ */
 public class HashCalculator {
+
+    private static final int BUFFER_SIZE = 8192;
 
     public String calculateSHA256(Path file) {
 
@@ -18,34 +27,57 @@ public class HashCalculator {
             try (InputStream input =
                          Files.newInputStream(file)) {
 
-                byte[] buffer = new byte[8192];
+                byte[] buffer =
+                        new byte[BUFFER_SIZE];
 
                 int bytesRead;
 
                 while ((bytesRead = input.read(buffer)) != -1) {
 
-                    digest.update(buffer, 0, bytesRead);
+                    digest.update(
+                            buffer,
+                            0,
+                            bytesRead
+                    );
 
                 }
 
             }
 
-            byte[] hash = digest.digest();
+            byte[] hash =
+                    digest.digest();
 
-            StringBuilder builder = new StringBuilder();
+            StringBuilder builder =
+                    new StringBuilder();
 
             for (byte b : hash) {
 
                 builder.append(
-                        String.format("%02x", b));
+                        String.format(
+                                "%02x",
+                                b & 0xff
+                        )
+                );
 
             }
 
             return builder.toString();
 
+        } catch (IOException e) {
+
+            throw new RuntimeException(
+                    "Unable to read file for SHA-256 calculation: "
+                            + file,
+                    e
+            );
+
         } catch (Exception e) {
 
-            throw new RuntimeException(e);
+            throw new RuntimeException(
+                    "Failed to calculate SHA-256 hash for file: "
+                            + file,
+                    e
+            );
 
         }
 
