@@ -1,5 +1,14 @@
 package metadata;
 
+/**
+ * Represents metadata information for a backed-up file.
+ *
+ * Used by the backup engine for:
+ * - incremental backup checks
+ * - deduplication
+ * - restore operations
+ * - metadata persistence
+ */
 public class FileMetadata {
 
     private String originalPath;
@@ -33,6 +42,7 @@ public class FileMetadata {
         this.backupTime = backupTime;
         this.lastModifiedTime = lastModifiedTime;
         this.deleted = deleted;
+
     }
 
     public String getOriginalPath() {
@@ -65,6 +75,22 @@ public class FileMetadata {
 
     public boolean isDeleted() {
         return deleted;
+    }
+
+    @Override
+    public String toString() {
+
+        return "FileMetadata{" +
+                "originalPath='" + originalPath + '\'' +
+                ", hash='" + hash + '\'' +
+                ", backupPath='" + backupPath + '\'' +
+                ", originalSize=" + originalSize +
+                ", compressedSize=" + compressedSize +
+                ", backupTime='" + backupTime + '\'' +
+                ", lastModifiedTime=" + lastModifiedTime +
+                ", deleted=" + deleted +
+                '}';
+
     }
 
 }
