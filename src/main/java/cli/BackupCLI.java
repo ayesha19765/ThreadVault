@@ -7,6 +7,10 @@ import java.util.Scanner;
 
 public class BackupCLI {
 
+    private static final int BACKUP = 1;
+    private static final int RESTORE = 2;
+    private static final int EXIT = 3;
+
     private final BackupManager backupManager;
 
     private final RestoreManager restoreManager;
@@ -23,31 +27,53 @@ public class BackupCLI {
 
     }
 
+    /**
+     * Starts the command-line interface.
+     */
     public void start(String backupDirectory) {
 
         while (true) {
 
-            System.out.println();
-            System.out.println(
-                    "========= Mini Backup Engine =========");
+            printMenu();
 
-            System.out.println("1. Backup Now");
-            System.out.println("2. Restore Files");
-            System.out.println("3. Exit");
-
-            System.out.print("Choice : ");
-
-            int choice =
-                    Integer.parseInt(scanner.nextLine());
+            int choice = readChoice();
 
             switch (choice) {
 
-                case 1 -> backupManager.startBackup(
-                        backupDirectory);
+                case BACKUP -> {
 
-                case 2 -> restoreManager.restoreAll();
+                    try {
 
-                case 3 -> {
+                        backupManager.startBackup(
+                                backupDirectory);
+
+                    } catch (Exception e) {
+
+                        System.err.println(
+                                "Backup failed: "
+                                        + e.getMessage());
+
+                    }
+
+                }
+
+                case RESTORE -> {
+
+                    try {
+
+                        restoreManager.restoreAll();
+
+                    } catch (Exception e) {
+
+                        System.err.println(
+                                "Restore failed: "
+                                        + e.getMessage());
+
+                    }
+
+                }
+
+                case EXIT -> {
 
                     System.out.println(
                             "Goodbye!");
@@ -57,9 +83,39 @@ public class BackupCLI {
                 }
 
                 default -> System.out.println(
-                        "Invalid Choice");
+                        "Invalid choice. Try again.");
 
             }
+
+        }
+
+    }
+
+    private void printMenu() {
+
+        System.out.println();
+
+        System.out.println(
+                "========= ThreadVault Backup Engine =========");
+
+        System.out.println("1. Backup Now");
+        System.out.println("2. Restore Files");
+        System.out.println("3. Exit");
+
+        System.out.print("Choice : ");
+
+    }
+
+    private int readChoice() {
+
+        try {
+
+            return Integer.parseInt(
+                    scanner.nextLine());
+
+        } catch (NumberFormatException e) {
+
+            return -1;
 
         }
 
