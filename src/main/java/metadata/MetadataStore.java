@@ -7,17 +7,23 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Stores backup metadata in memory and persists it
+ * to metadata/metadata.json.
+ *
+ * Uses a ConcurrentHashMap for O(1) lookups by
+ * original file path.
+ */
 public class MetadataStore {
 
-    private static final Path METADATA_DIRECTORY =
+    private static final Path METADATA_FOLDER =
             Path.of("metadata");
 
-    private static final Path METADATA_FILE =
-            METADATA_DIRECTORY.resolve("metadata.json");
+    private static final Path METADATA_FILE_PATH =
+            METADATA_FOLDER.resolve("metadata.json");
 
     private final ObjectMapper mapper;
 
@@ -28,39 +34,46 @@ public class MetadataStore {
 
         try {
 
-            Files.createDirectories(METADATA_DIRECTORY);
+            Files.createDirectories(METADATA_FOLDER);
 
         } catch (IOException e) {
 
-            throw new RuntimeException(e);
+            throw new RuntimeException(
+                    "Unable to create metadata directory.",
+                    e
+            );
 
         }
 
-        mapper = new ObjectMapper();
+        this.mapper = new ObjectMapper()
+                .enable(SerializationFeature.INDENT_OUTPUT);
 
-        mapper.enable(SerializationFeature.INDENT_OUTPUT);
-
-        metadataIndex = loadMetadata();
+        this.metadataIndex = loadMetadata();
 
     }
 
     private ConcurrentHashMap<String, FileMetadata> loadMetadata() {
 
-        ConcurrentHashMap<String, FileMetadata> index =
+        final ConcurrentHashMap<String, FileMetadata> index =
                 new ConcurrentHashMap<>();
 
-        if (!Files.exists(METADATA_FILE))
+        if (!Files.exists(METADATA_FILE_PATH)) {
+
             return index;
+
+        }
 
         try {
 
             List<FileMetadata> metadataList =
                     mapper.readValue(
-                            METADATA_FILE.toFile(),
+                            METADATA_FILE_PATH.toFile(),
                             mapper.getTypeFactory()
                                     .constructCollectionType(
                                             List.class,
-                                            FileMetadata.class));
+                                            FileMetadata.class
+                                    )
+                    );
 
             for (FileMetadata metadata : metadataList) {
 
@@ -73,11 +86,16 @@ public class MetadataStore {
 
         } catch (IOException e) {
 
+            System.err.println(
+                    "Warning: Unable to read metadata. Starting with an empty catalog."
+            );
+
             return index;
 
         }
 
         return index;
+
     }
 
     public synchronized void saveMetadata(FileMetadata metadata) {
@@ -87,21 +105,22 @@ public class MetadataStore {
                 metadata
         );
 
+        List<FileMetadata> metadataSnapshot =
+                new ArrayList<>(metadataIndex.values());
+
         try {
 
             mapper.writeValue(
-
-                    METADATA_FILE.toFile(),
-
-                    metadataIndex.values()
-
+                    METADATA_FILE_PATH.toFile(),
+                    metadataSnapshot
             );
 
-        }
+        } catch (IOException e) {
 
-        catch (IOException e) {
-
-            throw new RuntimeException(e);
+            throw new RuntimeException(
+                    "Unable to write metadata.json",
+                    e
+            );
 
         }
 
@@ -110,22 +129,29 @@ public class MetadataStore {
     public List<FileMetadata> getAllMetadata() {
 
         return new ArrayList<>(
-                metadataIndex.values());
+                metadataIndex.values()
+        );
 
     }
 
     public FileMetadata getMetadata(
-            String originalPath) {
+            String originalPath
+    ) {
 
-        return metadataIndex.get(originalPath);
+        return metadataIndex.get(
+                originalPath
+        );
 
     }
 
     public boolean contains(
-            String originalPath) {
+            String originalPath
+    ) {
 
         return metadataIndex.containsKey(
-                originalPath);
+                originalPath
+        );
 
     }
+
 }
