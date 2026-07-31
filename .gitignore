@@ -39,10 +39,10 @@ build/
 .DS_Store
 
 ### Sample Data
-/sample_data/
+sample_data/
 
 #### Meta-Data
 metadata/metadata.json
 
 ### Backup Data
-/backup_storage/
+backup_storage/
