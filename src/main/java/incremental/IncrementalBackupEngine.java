@@ -3,31 +3,44 @@ package incremental;
 import metadata.FileMetadata;
 import metadata.MetadataStore;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 
+/**
+ * Determines whether a file requires backup
+ * by comparing current filesystem metadata
+ * with previously stored backup metadata.
+ *
+ * Avoids expensive hashing and compression
+ * for unchanged files.
+ */
 public class IncrementalBackupEngine {
 
     private final MetadataStore metadataStore;
 
     public IncrementalBackupEngine(
-            MetadataStore metadataStore) {
+            MetadataStore metadataStore
+    ) {
 
         this.metadataStore = metadataStore;
 
     }
 
-    public boolean shouldBackup(Path file)
-            throws Exception {
+    public boolean shouldBackup(
+            Path file
+    ) throws IOException {
 
         FileMetadata previous =
                 metadataStore.getMetadata(
-                        file.toString());
+                        file.toString()
+                );
 
-        if (previous == null)
+        if (previous == null) {
+
             return true;
+
+        }
 
         long currentSize =
                 Files.size(file);
@@ -37,11 +50,8 @@ public class IncrementalBackupEngine {
                         .toMillis();
 
         return currentSize != previous.getOriginalSize()
-
                 ||
-
-                currentModified !=
-                        previous.getLastModifiedTime();
+                currentModified != previous.getLastModifiedTime();
 
     }
 
