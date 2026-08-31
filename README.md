@@ -246,15 +246,34 @@ java -jar target/ThreadVault-1.0-SNAPSHOT.jar --server
 | `MetadataStore` | `ConcurrentHashMap` | Fast O(1) concurrent lookups |
 | `BackupStatistics` | `AtomicInteger` & `AtomicLong` | Thread-safe metric accumulators |
 
----
+## Web Dashboard
 
-## Future Roadmap: Frontend & Web Dashboard
+ThreadVault provides a modern web dashboard for:
 
-- React / Next.js Web Dashboard
-- Live SSE Backup Visualizer with per-worker progress bars
-- Interactive File Catalog Explorer & Search
-- Selective One-Click File Restore UI
-- Storage & Deduplication Savings Charts
+- **Backup Management**: Configure source directory, destination, and worker thread pool size.
+- **Live Backup Progress**: Real-time progress bar, file counters, and live activity streaming via Server-Sent Events (SSE).
+- **Backup History**: Inspect historical backup jobs, durations, stored sizes, and space savings.
+- **Catalog Inspection**: Query content-addressed archives with path/hash filters, pagination, and SHA-256 copy helpers.
+- **Deduplication Statistics**: Visual storage footprint comparison and space saving metrics.
+- **Restore Operations**: Execute one-click repository restoration back to disk.
+
+The dashboard communicates with the Spring Boot REST API and consumes Server-Sent Events for real-time backup progress.
+
+### Running the Web Dashboard
+
+1. **Start the Java Backend Server**:
+   ```bash
+   java -jar target/ThreadVault-1.0-SNAPSHOT.jar --server
+   ```
+   *(Runs on `http://localhost:8080`)*
+
+2. **Start the Next.js Frontend**:
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+   *(Access the dashboard at `http://localhost:3000`)*
 
 ---
 
