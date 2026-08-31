@@ -3,6 +3,9 @@ package backup;
 import compression.CompressionManager;
 import dedup.DeduplicationEngine;
 import dedup.HashCalculator;
+import event.BackupEvent;
+import event.BackupEventPublisher;
+import event.BackupEventType;
 import incremental.IncrementalBackupEngine;
 import metadata.FileMetadata;
 import scanner.FileTask;
@@ -26,6 +29,9 @@ public class BackupWorker implements Runnable {
     private final HashCalculator hashCalculator;
     private final BackupStatistics statistics;
 
+    private final String backupId;
+    private final BackupEventPublisher eventPublisher;
+
     public BackupWorker(
             BlockingQueue<FileTask> fileQueue,
             BlockingQueue<FileMetadata> metadataQueue,
@@ -34,13 +40,27 @@ public class BackupWorker implements Runnable {
             IncrementalBackupEngine incrementalBackupEngine,
             BackupStatistics statistics
     ) {
+        this(fileQueue, metadataQueue, deduplicationEngine, compressionManager, incrementalBackupEngine, statistics, null, null);
+    }
 
+    public BackupWorker(
+            BlockingQueue<FileTask> fileQueue,
+            BlockingQueue<FileMetadata> metadataQueue,
+            DeduplicationEngine deduplicationEngine,
+            CompressionManager compressionManager,
+            IncrementalBackupEngine incrementalBackupEngine,
+            BackupStatistics statistics,
+            String backupId,
+            BackupEventPublisher eventPublisher
+    ) {
         this.fileQueue = fileQueue;
         this.metadataQueue = metadataQueue;
         this.deduplicationEngine = deduplicationEngine;
         this.compressionManager = compressionManager;
         this.incrementalBackupEngine = incrementalBackupEngine;
         this.statistics = statistics;
+        this.backupId = backupId;
+        this.eventPublisher = eventPublisher;
 
         this.hashCalculator = new HashCalculator();
     }
@@ -107,6 +127,8 @@ public class BackupWorker implements Runnable {
 
                     statistics.incrementalSkipped();
 
+                    publishEvent(BackupEventType.FILE_SKIPPED, file.toString(), task.getSize());
+
                     return;
                 }
 
@@ -128,6 +150,8 @@ public class BackupWorker implements Runnable {
                     );
 
                     statistics.duplicateSkipped();
+
+                    publishEvent(BackupEventType.FILE_DEDUPLICATED, file.toString(), task.getSize());
 
                     return;
                 }
@@ -189,6 +213,8 @@ public class BackupWorker implements Runnable {
                         backupLocation.getFileName()
                 );
 
+                publishEvent(BackupEventType.FILE_PROCESSED, file.toString(), task.getSize());
+
                 /*
                  * SUCCESS
                  */
@@ -222,12 +248,40 @@ public class BackupWorker implements Runnable {
                             file
                     );
 
+                    publishEvent(BackupEventType.FILE_FAILED, file.toString(), task.getSize());
+
                 }
 
             }
 
         }
 
+    }
+
+    private void publishEvent(BackupEventType type, String filePath, long fileSize) {
+        if (eventPublisher != null && backupId != null) {
+            double spaceSaved = 0.0;
+            if (statistics.getOriginalBytes() > 0) {
+                double compPct = (statistics.getCompressedBytes() * 100.0) / statistics.getOriginalBytes();
+                spaceSaved = Math.max(0.0, Math.round((100.0 - compPct) * 100.0) / 100.0);
+            }
+
+            BackupEvent event = BackupEvent.builder(backupId, type)
+                    .file(filePath)
+                    .fileSize(fileSize)
+                    .stats(
+                            statistics.getFilesScanned(),
+                            statistics.getFilesBackedUp(),
+                            statistics.getIncrementalSkipped(),
+                            statistics.getDuplicatesSkipped(),
+                            statistics.getFailedFiles(),
+                            statistics.getCompressedBytes(),
+                            spaceSaved
+                    )
+                    .build();
+
+            eventPublisher.publish(event);
+        }
     }
 
 }

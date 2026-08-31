@@ -2,6 +2,9 @@ package backup;
 
 import compression.CompressionManager;
 import dedup.DeduplicationEngine;
+import event.BackupEvent;
+import event.BackupEventPublisher;
+import event.BackupEventType;
 import incremental.IncrementalBackupEngine;
 import metadata.FileMetadata;
 import metadata.MetadataStore;
@@ -35,6 +38,16 @@ public class BackupManager {
     }
 
     public BackupStatistics startBackup(String folderPath, int workerCount, BackupStatistics statistics) {
+        return startBackup(folderPath, workerCount, statistics, null, null);
+    }
+
+    public BackupStatistics startBackup(
+            String folderPath,
+            int workerCount,
+            BackupStatistics statistics,
+            String backupId,
+            BackupEventPublisher eventPublisher
+    ) {
 
         final int workers = workerCount > 0 ? workerCount : NUMBER_OF_WORKERS;
         final BackupStatistics stats = statistics != null ? statistics : new BackupStatistics();
@@ -45,6 +58,14 @@ public class BackupManager {
         System.out.println("Scanning Folder : " + folderPath);
         System.out.println("Worker Threads  : " + workers);
         System.out.println();
+
+        if (eventPublisher != null && backupId != null) {
+            eventPublisher.publish(
+                    BackupEvent.builder(backupId, BackupEventType.BACKUP_STARTED)
+                            .message("Backup started for directory: " + folderPath)
+                            .build()
+            );
+        }
 
         /*
          * Queue containing files waiting to be backed up.
@@ -121,7 +142,9 @@ public class BackupManager {
                             deduplicationEngine,
                             compressionManager,
                             incrementalBackupEngine,
-                            stats
+                            stats,
+                            backupId,
+                            eventPublisher
                     )
             );
 
@@ -132,7 +155,24 @@ public class BackupManager {
          */
         final DirectoryScanner scanner = new DirectoryScanner();
 
-        scanner.scan(Path.of(folderPath), fileQueue);
+        scanner.scan(Path.of(folderPath), fileQueue, path -> {
+            if (eventPublisher != null && backupId != null) {
+                eventPublisher.publish(
+                        BackupEvent.builder(backupId, BackupEventType.FILE_DISCOVERED)
+                                .file(path.toString())
+                                .stats(
+                                        stats.getFilesScanned(),
+                                        stats.getFilesBackedUp(),
+                                        stats.getIncrementalSkipped(),
+                                        stats.getDuplicatesSkipped(),
+                                        stats.getFailedFiles(),
+                                        stats.getCompressedBytes(),
+                                        0.0
+                                )
+                                .build()
+                );
+            }
+        });
 
         /*
          * Signal workers to stop.

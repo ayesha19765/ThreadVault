@@ -4,10 +4,11 @@ import model.BackupJob;
 import model.BackupStatus;
 import stats.BackupStatistics;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
- * Response DTO representing backup job details and statistics.
+ * Response DTO representing backup job details, execution duration, and statistics.
  */
 public class BackupJobResponse {
 
@@ -28,6 +29,7 @@ public class BackupJobResponse {
     private LocalDateTime createdAt;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
+    private Long durationMs;
     private String errorMessage;
 
     public BackupJobResponse() {
@@ -44,6 +46,13 @@ public class BackupJobResponse {
         response.setStartedAt(job.getStartedAt());
         response.setCompletedAt(job.getCompletedAt());
         response.setErrorMessage(job.getErrorMessage());
+
+        if (job.getStartedAt() != null) {
+            LocalDateTime end = job.getCompletedAt() != null ? job.getCompletedAt() : LocalDateTime.now();
+            response.setDurationMs(Duration.between(job.getStartedAt(), end).toMillis());
+        } else {
+            response.setDurationMs(0L);
+        }
 
         BackupStatistics stats = job.getStatistics();
         if (stats != null) {
@@ -201,6 +210,14 @@ public class BackupJobResponse {
 
     public void setCompletedAt(LocalDateTime completedAt) {
         this.completedAt = completedAt;
+    }
+
+    public Long getDurationMs() {
+        return durationMs;
+    }
+
+    public void setDurationMs(Long durationMs) {
+        this.durationMs = durationMs;
     }
 
     public String getErrorMessage() {

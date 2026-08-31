@@ -9,6 +9,7 @@ import org.springframework.context.annotation.ComponentScan;
 @ComponentScan(basePackages = {
         "controller",
         "service",
+        "event",
         "config",
         "backup",
         "restore",

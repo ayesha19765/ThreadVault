@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.BlockingQueue;
+import java.util.function.Consumer;
 
 /**
  * Recursively scans a directory and publishes
@@ -17,6 +18,14 @@ public class DirectoryScanner {
             Path root,
             BlockingQueue<FileTask> queue
     ) {
+        scan(root, queue, null);
+    }
+
+    public void scan(
+            Path root,
+            BlockingQueue<FileTask> queue,
+            Consumer<Path> onFileDiscovered
+    ) {
 
         try (var paths = Files.walk(root)) {
 
@@ -25,12 +34,18 @@ public class DirectoryScanner {
 
                         try {
 
+                            long size = Files.size(path);
+
                             queue.put(
                                     new FileTask(
                                             path,
-                                            Files.size(path)
+                                            size
                                     )
                             );
+
+                            if (onFileDiscovered != null) {
+                                onFileDiscovered.accept(path);
+                            }
 
                         } catch (IOException e) {
 
