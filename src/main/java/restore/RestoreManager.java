@@ -48,17 +48,20 @@ public class RestoreManager {
 
     }
 
-    public void restoreAll() {
+    public int restoreAll() {
 
         List<FileMetadata> metadataList =
                 metadataStore.getAllMetadata();
 
+        int restoredCount = 0;
         for (FileMetadata metadata : metadataList) {
 
             restore(metadata);
+            restoredCount++;
 
         }
 
+        return restoredCount;
     }
 
     private void restore(
@@ -68,17 +71,21 @@ public class RestoreManager {
         Path zipFile =
                 Path.of(metadata.getBackupPath());
 
+        Path original = Path.of(metadata.getOriginalPath());
+        Path relativePath = original.isAbsolute()
+                ? (original.getRoot() != null ? original.getRoot().relativize(original) : original)
+                : original;
+
         Path outputFile =
                 RESTORE_DIRECTORY
-                        .resolve(metadata.getOriginalPath())
+                        .resolve(relativePath)
                         .normalize();
-
 
         /*
          * Prevent path traversal attacks by ensuring
          * restored files remain inside the restore folder.
          */
-        if (!outputFile.startsWith(RESTORE_DIRECTORY)) {
+        if (!outputFile.startsWith(RESTORE_DIRECTORY.normalize())) {
 
             throw new RuntimeException(
                     "Invalid restore path: "
@@ -87,13 +94,11 @@ public class RestoreManager {
 
         }
 
-
         try {
 
             Files.createDirectories(
                     outputFile.getParent()
             );
-
 
             try (
                     InputStream input =
@@ -107,13 +112,11 @@ public class RestoreManager {
                 ZipEntry entry =
                         zis.getNextEntry();
 
-
                 if (entry == null) {
 
                     return;
 
                 }
-
 
                 try (
                         OutputStream output =
@@ -140,12 +143,10 @@ public class RestoreManager {
 
             }
 
-
             System.out.printf(
                     "[Restore] Restored : %s%n",
                     outputFile
             );
-
 
         } catch (IOException e) {
 

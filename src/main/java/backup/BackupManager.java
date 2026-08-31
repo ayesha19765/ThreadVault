@@ -27,11 +27,23 @@ public class BackupManager {
     private static final long WORKER_TIMEOUT_MINUTES = 5;
 
     public void startBackup(String folderPath) {
+        startBackup(folderPath, NUMBER_OF_WORKERS, new BackupStatistics());
+    }
+
+    public BackupStatistics startBackup(String folderPath, int workerCount) {
+        return startBackup(folderPath, workerCount, new BackupStatistics());
+    }
+
+    public BackupStatistics startBackup(String folderPath, int workerCount, BackupStatistics statistics) {
+
+        final int workers = workerCount > 0 ? workerCount : NUMBER_OF_WORKERS;
+        final BackupStatistics stats = statistics != null ? statistics : new BackupStatistics();
 
         System.out.println("======================================");
         System.out.println("       Mini Backup Engine");
         System.out.println("======================================");
         System.out.println("Scanning Folder : " + folderPath);
+        System.out.println("Worker Threads  : " + workers);
         System.out.println();
 
         /*
@@ -57,9 +69,6 @@ public class BackupManager {
 
         final MetadataStore metadataStore =
                 new MetadataStore();
-
-        final BackupStatistics statistics =
-                new BackupStatistics();
 
         final IncrementalBackupEngine incrementalBackupEngine =
                 new IncrementalBackupEngine(metadataStore);
@@ -99,11 +108,11 @@ public class BackupManager {
          */
         final ExecutorService executor =
                 Executors.newFixedThreadPool(
-                        NUMBER_OF_WORKERS,
+                        workers,
                         threadFactory
                 );
 
-        for (int i = 0; i < NUMBER_OF_WORKERS; i++) {
+        for (int i = 0; i < workers; i++) {
 
             executor.submit(
                     new BackupWorker(
@@ -112,7 +121,7 @@ public class BackupManager {
                             deduplicationEngine,
                             compressionManager,
                             incrementalBackupEngine,
-                            statistics
+                            stats
                     )
             );
 
@@ -130,7 +139,7 @@ public class BackupManager {
          */
         try {
 
-            for (int i = 0; i < NUMBER_OF_WORKERS; i++) {
+            for (int i = 0; i < workers; i++) {
 
                 fileQueue.put(FileTask.POISON_PILL);
 
@@ -194,13 +203,14 @@ public class BackupManager {
         /*
          * Print backup summary.
          */
-        statistics.printSummary();
+        stats.printSummary();
 
         System.out.println();
         System.out.println("======================================");
         System.out.println(" Backup Completed Successfully");
         System.out.println("======================================");
 
+        return stats;
     }
 
 }

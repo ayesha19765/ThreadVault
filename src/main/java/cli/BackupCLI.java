@@ -2,29 +2,44 @@ package cli;
 
 import backup.BackupManager;
 import restore.RestoreManager;
+import service.BackupJobRegistry;
+import service.BackupService;
+import service.BackupServiceImpl;
 
 import java.util.Scanner;
+import java.util.concurrent.Executors;
 
+/**
+ * Command-line interface for ThreadVault.
+ *
+ * <p>Routes all operations through the Application Service Layer
+ * to maintain architectural consistency with the REST API.</p>
+ */
 public class BackupCLI {
 
     private static final int BACKUP = 1;
     private static final int RESTORE = 2;
     private static final int EXIT = 3;
 
-    private final BackupManager backupManager;
-
-    private final RestoreManager restoreManager;
+    private final BackupService backupService;
 
     private final Scanner scanner =
             new Scanner(System.in);
 
+    public BackupCLI(BackupService backupService) {
+        this.backupService = backupService;
+    }
+
     public BackupCLI(
             BackupManager backupManager,
             RestoreManager restoreManager) {
-
-        this.backupManager = backupManager;
-        this.restoreManager = restoreManager;
-
+        this(new BackupServiceImpl(
+                new BackupJobRegistry(),
+                backupManager,
+                restoreManager,
+                4,
+                Executors.newCachedThreadPool()
+        ));
     }
 
     /**
@@ -44,8 +59,9 @@ public class BackupCLI {
 
                     try {
 
-                        backupManager.startBackup(
-                                backupDirectory);
+                        backupService.executeBackup(
+                                backupDirectory,
+                                0);
 
                     } catch (Exception e) {
 
@@ -61,7 +77,7 @@ public class BackupCLI {
 
                     try {
 
-                        restoreManager.restoreAll();
+                        backupService.restoreAll();
 
                     } catch (Exception e) {
 
