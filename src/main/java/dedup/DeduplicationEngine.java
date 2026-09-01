@@ -1,5 +1,8 @@
 package dedup;
 
+import metadata.FileMetadata;
+import metadata.MetadataStore;
+
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,6 +18,20 @@ public class DeduplicationEngine {
 
     private final ConcurrentHashMap<String, Path> hashToFileMap =
             new ConcurrentHashMap<>();
+
+    public DeduplicationEngine() {
+        this(null);
+    }
+
+    public DeduplicationEngine(MetadataStore metadataStore) {
+        if (metadataStore != null) {
+            for (FileMetadata m : metadataStore.getAllMetadata()) {
+                if (m.getHash() != null && m.getOriginalPath() != null) {
+                    hashToFileMap.put(m.getHash(), Path.of(m.getOriginalPath()));
+                }
+            }
+        }
+    }
 
     public boolean isDuplicate(
             String hash,

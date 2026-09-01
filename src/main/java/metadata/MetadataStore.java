@@ -2,6 +2,7 @@ package metadata;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,59 +16,54 @@ import java.util.concurrent.ConcurrentHashMap;
  * to metadata/metadata.json.
  *
  * Uses a ConcurrentHashMap for O(1) lookups by
- * original file path.
+ * original file path and dynamically refreshes from disk
+ * if updated.
  */
+@Component
 public class MetadataStore {
 
-    private static final Path METADATA_FOLDER =
+    private static final Path DEFAULT_METADATA_FOLDER =
             Path.of("metadata");
 
-    private static final Path METADATA_FILE_PATH =
-            METADATA_FOLDER.resolve("metadata.json");
-
+    private final Path metadataFolder;
+    private final Path metadataFilePath;
     private final ObjectMapper mapper;
-
-    private final ConcurrentHashMap<String, FileMetadata>
-            metadataIndex;
+    private final ConcurrentHashMap<String, FileMetadata> metadataIndex;
+    private volatile long lastLoadedTime = 0L;
 
     public MetadataStore() {
+        this(DEFAULT_METADATA_FOLDER);
+    }
+
+    public MetadataStore(Path metadataFolder) {
+        this.metadataFolder = metadataFolder != null ? metadataFolder : DEFAULT_METADATA_FOLDER;
+        this.metadataFilePath = this.metadataFolder.resolve("metadata.json");
 
         try {
-
-            Files.createDirectories(METADATA_FOLDER);
-
+            Files.createDirectories(this.metadataFolder);
         } catch (IOException e) {
-
             throw new RuntimeException(
                     "Unable to create metadata directory.",
                     e
             );
-
         }
 
         this.mapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
 
-        this.metadataIndex = loadMetadata();
-
+        this.metadataIndex = new ConcurrentHashMap<>();
+        reload();
     }
 
-    private ConcurrentHashMap<String, FileMetadata> loadMetadata() {
-
-        final ConcurrentHashMap<String, FileMetadata> index =
-                new ConcurrentHashMap<>();
-
-        if (!Files.exists(METADATA_FILE_PATH)) {
-
-            return index;
-
+    public synchronized void reload() {
+        if (!Files.exists(metadataFilePath)) {
+            return;
         }
 
         try {
-
             List<FileMetadata> metadataList =
                     mapper.readValue(
-                            METADATA_FILE_PATH.toFile(),
+                            metadataFilePath.toFile(),
                             mapper.getTypeFactory()
                                     .constructCollectionType(
                                             List.class,
@@ -75,31 +71,36 @@ public class MetadataStore {
                                     )
                     );
 
+            metadataIndex.clear();
             for (FileMetadata metadata : metadataList) {
-
-                index.put(
-                        metadata.getOriginalPath(),
-                        metadata
-                );
-
+                if (metadata.getOriginalPath() != null) {
+                    metadataIndex.put(
+                            metadata.getOriginalPath(),
+                            metadata
+                    );
+                }
             }
-
+            lastLoadedTime = Files.getLastModifiedTime(metadataFilePath).toMillis();
         } catch (IOException e) {
-
             System.err.println(
                     "Warning: Unable to read metadata. Starting with an empty catalog."
             );
-
-            return index;
-
         }
+    }
 
-        return index;
-
+    private void checkRefresh() {
+        if (Files.exists(metadataFilePath)) {
+            try {
+                long diskModified = Files.getLastModifiedTime(metadataFilePath).toMillis();
+                if (diskModified > lastLoadedTime) {
+                    reload();
+                }
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     public synchronized void saveMetadata(FileMetadata metadata) {
-
         metadataIndex.put(
                 metadata.getOriginalPath(),
                 metadata
@@ -109,49 +110,43 @@ public class MetadataStore {
                 new ArrayList<>(metadataIndex.values());
 
         try {
-
             mapper.writeValue(
-                    METADATA_FILE_PATH.toFile(),
+                    metadataFilePath.toFile(),
                     metadataSnapshot
             );
-
+            if (Files.exists(metadataFilePath)) {
+                lastLoadedTime = Files.getLastModifiedTime(metadataFilePath).toMillis();
+            }
         } catch (IOException e) {
-
             throw new RuntimeException(
                     "Unable to write metadata.json",
                     e
             );
-
         }
-
     }
 
     public List<FileMetadata> getAllMetadata() {
-
+        checkRefresh();
         return new ArrayList<>(
                 metadataIndex.values()
         );
-
     }
 
     public FileMetadata getMetadata(
             String originalPath
     ) {
-
+        checkRefresh();
         return metadataIndex.get(
                 originalPath
         );
-
     }
 
     public boolean contains(
             String originalPath
     ) {
-
+        checkRefresh();
         return metadataIndex.containsKey(
                 originalPath
         );
-
     }
-
 }

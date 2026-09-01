@@ -82,14 +82,14 @@ public class BackupManager {
         /*
          * Shared components used by all workers.
          */
+        final MetadataStore metadataStore =
+                new MetadataStore();
+
         final DeduplicationEngine deduplicationEngine =
-                new DeduplicationEngine();
+                new DeduplicationEngine(metadataStore);
 
         final CompressionManager compressionManager =
                 new CompressionManager();
-
-        final MetadataStore metadataStore =
-                new MetadataStore();
 
         final IncrementalBackupEngine incrementalBackupEngine =
                 new IncrementalBackupEngine(metadataStore);

@@ -21,84 +21,95 @@ import java.util.zip.ZipInputStream;
  */
 public class RestoreManager {
 
-    private static final Path RESTORE_DIRECTORY =
+    private static final Path DEFAULT_RESTORE_DIRECTORY =
             Path.of("restore");
 
     private static final int BUFFER_SIZE = 8192;
 
+    private final Path restoreDirectory;
     private final MetadataStore metadataStore;
 
     public RestoreManager() {
+        this(DEFAULT_RESTORE_DIRECTORY, new MetadataStore());
+    }
 
-        this.metadataStore = new MetadataStore();
+    public RestoreManager(MetadataStore metadataStore) {
+        this(DEFAULT_RESTORE_DIRECTORY, metadataStore);
+    }
+
+    public RestoreManager(Path restoreDirectory) {
+        this(restoreDirectory, new MetadataStore());
+    }
+
+    public RestoreManager(Path restoreDirectory, MetadataStore metadataStore) {
+        this.restoreDirectory = restoreDirectory != null ? restoreDirectory : DEFAULT_RESTORE_DIRECTORY;
+        this.metadataStore = metadataStore != null ? metadataStore : new MetadataStore();
 
         try {
-
-            Files.createDirectories(RESTORE_DIRECTORY);
-
+            Files.createDirectories(this.restoreDirectory);
         } catch (IOException e) {
-
             throw new RuntimeException(
                     "Unable to create restore directory: "
-                            + RESTORE_DIRECTORY,
+                            + this.restoreDirectory,
                     e
             );
-
         }
-
     }
 
     public int restoreAll() {
-
         List<FileMetadata> metadataList =
                 metadataStore.getAllMetadata();
 
         int restoredCount = 0;
         for (FileMetadata metadata : metadataList) {
-
             restore(metadata);
             restoredCount++;
-
         }
 
         return restoredCount;
     }
 
+    public Path getRestoreDirectory() {
+        return restoreDirectory;
+    }
+
     private void restore(
             FileMetadata metadata
     ) {
-
         Path zipFile =
                 Path.of(metadata.getBackupPath());
+
+        if (!Files.exists(zipFile)) {
+            System.err.printf("[Restore] Warning: Backup archive not found for %s (%s). Skipping.%n",
+                    metadata.getOriginalPath(), zipFile);
+            return;
+        }
 
         Path original = Path.of(metadata.getOriginalPath());
         Path relativePath = original.isAbsolute()
                 ? (original.getRoot() != null ? original.getRoot().relativize(original) : original)
                 : original;
 
-        Path outputFile =
-                RESTORE_DIRECTORY
-                        .resolve(relativePath)
-                        .normalize();
+        Path baseDir = restoreDirectory.toAbsolutePath().normalize();
+        Path outputFile = baseDir.resolve(relativePath).normalize().toAbsolutePath();
 
         /*
          * Prevent path traversal attacks by ensuring
-         * restored files remain inside the restore folder.
+         * restored files remain strictly inside the restore folder.
          */
-        if (!outputFile.startsWith(RESTORE_DIRECTORY.normalize())) {
-
-            throw new RuntimeException(
-                    "Invalid restore path: "
-                            + outputFile
+        if (!outputFile.startsWith(baseDir)) {
+            throw new SecurityException(
+                    "Path traversal attempt detected: "
+                            + metadata.getOriginalPath()
             );
-
         }
 
         try {
-
-            Files.createDirectories(
-                    outputFile.getParent()
-            );
+            if (outputFile.getParent() != null) {
+                Files.createDirectories(
+                        outputFile.getParent()
+                );
+            }
 
             try (
                     InputStream input =
@@ -106,41 +117,31 @@ public class RestoreManager {
 
                     ZipInputStream zis =
                             new ZipInputStream(input)
-
             ) {
-
                 ZipEntry entry =
                         zis.getNextEntry();
 
                 if (entry == null) {
-
                     return;
-
                 }
 
                 try (
                         OutputStream output =
                                 Files.newOutputStream(outputFile)
-
                 ) {
-
                     byte[] buffer =
                             new byte[BUFFER_SIZE];
 
                     int bytesRead;
 
                     while ((bytesRead = zis.read(buffer)) != -1) {
-
                         output.write(
                                 buffer,
                                 0,
                                 bytesRead
                         );
-
                     }
-
                 }
-
             }
 
             System.out.printf(
@@ -149,15 +150,11 @@ public class RestoreManager {
             );
 
         } catch (IOException e) {
-
             throw new RuntimeException(
                     "Failed to restore file: "
                             + metadata.getOriginalPath(),
                     e
             );
-
         }
-
     }
-
 }

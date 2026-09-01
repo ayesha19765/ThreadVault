@@ -151,6 +151,34 @@ public class BackupWorker implements Runnable {
 
                     statistics.duplicateSkipped();
 
+                    // Re-use existing compressed archive for metadata indexing & restore
+                    final Path backupLocation =
+                            compressionManager.compress(
+                                    file,
+                                    hash
+                            );
+
+                    final long compressedSize =
+                            Files.size(backupLocation);
+
+                    final long lastModified =
+                            Files.getLastModifiedTime(file)
+                                    .toMillis();
+
+                    FileMetadata metadata =
+                            new FileMetadata(
+                                    file.toString(),
+                                    hash,
+                                    backupLocation.toString(),
+                                    task.getSize(),
+                                    compressedSize,
+                                    LocalDateTime.now().toString(),
+                                    lastModified,
+                                    false
+                            );
+
+                    metadataQueue.put(metadata);
+
                     publishEvent(BackupEventType.FILE_DEDUPLICATED, file.toString(), task.getSize());
 
                     return;

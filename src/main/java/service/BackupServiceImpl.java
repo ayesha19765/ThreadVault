@@ -183,7 +183,13 @@ public class BackupServiceImpl implements BackupService {
         }
 
         try {
-            int restoredCount = restoreManager.restoreAll();
+            int restoredCount;
+            if (request != null && request.getTargetDirectory() != null && !request.getTargetDirectory().isBlank()) {
+                RestoreManager customRestoreManager = new RestoreManager(Path.of(request.getTargetDirectory()));
+                restoredCount = customRestoreManager.restoreAll();
+            } else {
+                restoredCount = restoreManager.restoreAll();
+            }
             return new RestoreResponse(
                     "SUCCESS",
                     "Files restored successfully from backup metadata catalog",
