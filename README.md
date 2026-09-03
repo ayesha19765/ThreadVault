@@ -1,282 +1,167 @@
 # ThreadVault
 
 [![Java](https://img.shields.io/badge/Java-21-orange)](https://www.oracle.com/java/)
-[![Build](https://img.shields.io/badge/Build-Maven-blue)](https://maven.apache.org/)
-[![Concurrency](https://img.shields.io/badge/Architecture-Producer--Consumer-success)]()
-[![Storage](https://img.shields.io/badge/Storage-Incremental%20%7C%20Deduplicated-blueviolet)]()
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen)](https://spring.io/projects/spring-boot)
+[![Next.js](https://img.shields.io/badge/Next.js-16.3-black)](https://nextjs.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-blue)](https://www.docker.com/)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0%20%7C%20Swagger-green)](http://localhost:8080/swagger-ui.html)
+[![Architecture](https://img.shields.io/badge/Architecture-Producer--Consumer-success)]()
 
-A high-performance concurrent backup and deduplication engine built with Java 21 and Spring Boot. ThreadVault combines multithreaded file pipelines, incremental change detection, SHA-256 content deduplication, ZIP compression, real-time Server-Sent Events (SSE) progress streaming, and catalog inspection into a modular, production-ready architecture.
+**ThreadVault** is a high-performance, concurrent incremental backup and content-based deduplication engine built with **Java 21**, **Spring Boot**, and **Next.js**. It features a lock-free multithreaded file processing pipeline, SHA-256 content addressability, atomic ZIP archive compression, real-time Server-Sent Events (SSE) progress streaming, path traversal protection, and an interactive web dashboard.
 
 ---
 
-## Highlights
+## Key Highlights
 
-- **Concurrent Processing**: Multithreaded backup pipeline using Producer–Consumer pattern and fixed worker thread pools.
-- **Real-Time Observability**: Live backup progress streaming via Server-Sent Events (SSE) without HTTP coupling in the core engine.
-- **Incremental Backups**: Instant change detection skipping unmodified files before hashing or compression.
-- **Content-Based Deduplication**: SHA-256 content hashing to ensure identical data is stored exactly once across multiple files.
-- **ZIP Compression**: Deterministic, content-addressed storage layout optimizing disk utilization.
-- **Catalog Inspection**: Aggregated repository summary metrics and paginated/filtered file catalog APIs.
-- **Dual Interface**: Interactive terminal CLI and non-blocking Spring Boot REST API.
+- **Producer–Consumer Concurrency**: Lock-free task coordination using bounded `ArrayBlockingQueue` queues and custom worker thread pools.
+- **Content-Based Deduplication**: SHA-256 cryptographic hashing ensures identical data across different directories is compressed and stored only once.
+- **Atomic Incremental Backups**: Fast last-modified-time and size change checks skip unmodified files before hashing or compression.
+- **Atomic ZIP Compression**: Temporary-file writing with atomic filesystem moves prevents concurrent readers from observing incomplete archives.
+- **Real-Time Observability**: Real-time progress broadcasting via Server-Sent Events (SSE) with automatic subscriber lifecycle cleanup.
+- **Strict Path Security**: Path traversal defense ensuring all restored files strictly remain within designated restore roots.
+- **Production-Ready Operations**: Spring Boot Actuator health checks (`/actuator/health`), OpenAPI 3 / Swagger UI (`/swagger-ui.html`), graceful shutdown, SLF4J logging, and multi-stage Docker Compose deployment with persistent volumes.
 
 ---
 
 ## System Architecture
 
 ```text
-                     ┌──────────────┐
-                     │    CLI       │
-                     └──────┬───────┘
-                            │
-                     ┌──────▼───────┐
-                     │   Service    │
-                     │ (Backup,     │
-                     │  Catalog)    │
-                     └──────┬───────┘
-                            │
-                     ┌──────▼───────┐
-                     │ ThreadVault  │
-                     │     Core     │
-                     │ (Scanner,    │
-                     │  Workers,    │
-                     │  Dedup, ZIP) │
-                     └──────┬───────┘
-                            │
-                    ┌───────▼────────┐
-                    │ Backup Events  │ (BackupEventPublisher)
-                    └───────┬────────┘
-                            │
-              ┌─────────────┴─────────────┐
-              ▼                           ▼
-       Job Statistics                SSE Stream
-              │                           │
-              └─────────────┬─────────────┘
-                            ▼
-                     Future Frontend
+                     Next.js Web Dashboard
+                        (Port 3000)
+                             │
+                             │ REST API / SSE Stream
+                             ▼
+                    Spring Boot REST API
+                        (Port 8080)
+                             │
+                             ▼
+                  Application Service Layer
+                 (BackupService, CatalogService)
+                             │
+                             ▼
+                     ThreadVault Core
+                             │
+       ┌─────────────────────┼─────────────────────┐
+       ▼                     ▼                     ▼
+ DirectoryScanner       BackupWorker Pool       MetadataStore
+   (Producer)             (Consumers)         (O(1) Concurrent Index)
+       │                     │                     │
+       └──────────────┬──────┴─────────────────────┘
+                      │
+                      ▼
+       Incremental Check ──► SHA-256 Hash ──► Deduplication ──► Atomic ZIP
+                      │
+                      ▼
+              Backup Storage & Catalog
+               (Persistent Volumes)
 ```
 
-### Core Engine Pipeline
+---
+
+## Core Engineering Highlights
+
+| Feature | Implementation Mechanism | Engineering Purpose |
+|---|---|---|
+| **Pipeline Concurrency** | `ArrayBlockingQueue<FileTask>(100)` & `ExecutorService` | Decouples filesystem directory traversal from CPU/IO-bound compression. |
+| **Deduplication** | `ConcurrentHashMap.putIfAbsent(hash, path)` | Prevents duplicate physical storage across multiple files with identical content. |
+| **Atomic Writes** | `.tmp.<uuid>` temp file + `Files.move(ATOMIC_MOVE)` | Eliminates half-written or corrupted ZIP archives during concurrent execution. |
+| **Path Traversal Defense** | `baseDir.resolve(rel).normalize().toAbsolutePath()` | Blocks malicious directory escape attempts (`../../`) with `SecurityException`. |
+| **Live Observability** | `SseEmitter` + `BackupEventHub` | Delivers real-time progress events without coupling the backup engine to HTTP. |
+| **Storage Health** | Custom `HealthIndicator` (`/actuator/health`) | Verifies filesystem read/write access and available disk space. |
+
+---
+
+## Running with Docker Compose (Recommended)
+
+ThreadVault includes a production-ready, multi-stage Docker Compose configuration:
+
+```bash
+# Build and start all services in the background
+docker compose up --build -d
+
+# Check service health and logs
+docker compose ps
+docker compose logs -f
+```
+
+- **Web Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **REST API Backend**: [http://localhost:8080](http://localhost:8080)
+- **OpenAPI / Swagger UI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+- **Actuator Health Check**: [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health)
+
+### Persistent Storage
+
+Docker Compose configures named volumes so backup archives and metadata persist across container restarts:
 
 ```text
-                     DirectoryScanner
-                            │
-                            ▼
-                 BlockingQueue<FileTask>
-                            │
-       ┌────────────────────┼────────────────────┐
-       ▼                    ▼                    ▼
-   Worker-1             Worker-2             Worker-N
-       │                    │                    │
-       └────────────────────┼────────────────────┘
-                            ▼
-                 Incremental Backup Check
-                            │
-                            ▼
-                     SHA-256 Hashing
-                            │
-                            ▼
-                  Deduplication Engine
-                            │
-                            ▼
-                   ZIP Compression
-                            │
-                            ▼
-                    Backup Repository
-                            │
-                            ▼
-                     Metadata Store
+Host Storage
+ ├── threadvault_storage ──► /app/backup_storage (Compressed ZIP archives)
+ └── threadvault_metadata ─► /app/metadata       (JSON catalog index)
 ```
+
+---
+
+## Running Locally (Without Docker)
+
+### Prerequisites
+- **Java 21+**
+- **Maven 3.9+**
+- **Node.js 20+**
+
+### 1. Build and Run the Backend
+```bash
+# Build the JAR
+mvn clean package
+
+# Option A: Run Interactive CLI Mode
+java -jar target/ThreadVault-1.0-SNAPSHOT.jar
+
+# Option B: Run Spring Boot REST API & SSE Server
+java -jar target/ThreadVault-1.0-SNAPSHOT.jar --server
+```
+
+### 2. Run the Next.js Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+*(Access the dashboard at `http://localhost:3000`)*
 
 ---
 
 ## REST API Reference
 
-ThreadVault exposes a non-blocking REST API on port `8080`.
-
-| Method | Endpoint | Description | Status Code |
-|---|---|---|---|
-| `POST` | `/api/backups` | Submits a backup request, starts backup asynchronously | `202 Accepted` |
-| `GET` | `/api/backups/{id}` | Retrieves backup job status, duration, and statistics | `200 OK` |
-| `GET` | `/api/backups` | Retrieves a list of all recent backup jobs | `200 OK` |
-| `GET` | `/api/backups/{id}/stream` | Streams real-time Server-Sent Events (SSE) progress | `200 OK` (Stream) |
-| `POST` | `/api/backups/{id}/restore` | Restores backed-up files from metadata catalog | `200 OK` |
-| `GET` | `/api/catalog` | Retrieves summary storage metrics and deduplication stats | `200 OK` |
-| `GET` | `/api/catalog/files` | Queries paginated catalog files with path and hash filters | `200 OK` |
-
----
-
-### API Examples
-
-#### 1. Start an Asynchronous Backup
-```bash
-curl -X POST http://localhost:8080/api/backups \
-  -H "Content-Type: application/json" \
-  -d '{"source": "sample_data", "workers": 4}'
-```
-**Response (`202 Accepted`)**:
-```json
-{
-  "backupId": "a7b554cb-e08d-4428-9ea9-11bbce16bb72",
-  "status": "QUEUED",
-  "source": "sample_data",
-  "destination": "backup_storage",
-  "workers": 4,
-  "filesDiscovered": 0,
-  "filesProcessed": 0,
-  "filesSkipped": 0,
-  "filesDeduplicated": 0,
-  "filesIncrementalSkipped": 0,
-  "filesFailed": 0,
-  "originalBytes": 0,
-  "storedBytes": 0,
-  "spaceSavedPercentage": 0.0,
-  "createdAt": "2026-08-31T15:04:06.965274",
-  "durationMs": 0
-}
-```
-
-#### 2. Stream Real-Time Progress (Server-Sent Events)
-```bash
-curl -N http://localhost:8080/api/backups/a7b554cb-e08d-4428-9ea9-11bbce16bb72/stream
-```
-**Event Stream Output**:
-```text
-event:INITIAL_STATE
-data:{"backupId":"a7b554cb...","status":"RUNNING","filesDiscovered":10,"filesProcessed":6,...}
-
-id:7b42d3...
-event:FILE_PROCESSED
-data:{"backupId":"a7b554cb...","type":"FILE_PROCESSED","file":"documents/report.pdf","fileSize":1048576,"filesDiscovered":10,"filesProcessed":7,"storedBytes":419430,"spaceSavedPercentage":60.0}
-
-id:d6de0b...
-event:BACKUP_COMPLETED
-data:{"backupId":"a7b554cb...","type":"BACKUP_COMPLETED","status":"COMPLETED","filesDiscovered":10,"filesProcessed":10,"storedBytes":524288,"spaceSavedPercentage":50.0,"durationMs":120}
-```
-
-#### 3. Inspect Repository Catalog Summary
-```bash
-curl http://localhost:8080/api/catalog
-```
-**Response (`200 OK`)**:
-```json
-{
-  "totalFiles": 25,
-  "uniqueFiles": 7,
-  "totalOriginalBytes": 531494,
-  "totalStoredBytes": 522321,
-  "deduplicatedBytes": 9173,
-  "spaceSavedPercentage": 1.73,
-  "totalBackups": 23,
-  "lastBackupTime": "2026-08-31T15:03:31.433583"
-}
-```
-
-#### 4. Query Paginated Catalog Files
-```bash
-curl "http://localhost:8080/api/catalog/files?path=png&page=0&size=10"
-```
-**Response (`200 OK`)**:
-```json
-{
-  "content": [
-    {
-      "originalPath": "sample_data/sample_png_image.png",
-      "hash": "76ebf60e48796a7122568cff722b3b56710f88405da3abb1cc4731f1400258c4",
-      "backupPath": "backup_storage/76ebf60e48796a7122568cff722b3b56710f88405da3abb1cc4731f1400258c4.zip",
-      "originalSize": 365638,
-      "compressedSize": 364238,
-      "backupTime": "2026-08-31T12:04:46.275116",
-      "lastModifiedTime": 1788156714929,
-      "deleted": false,
-      "deduplicated": false
-    }
-  ],
-  "page": 0,
-  "size": 10,
-  "totalElements": 1,
-  "totalPages": 1,
-  "hasMore": false
-}
-```
-
-#### 5. Restore Backed-Up Files
-```bash
-curl -X POST http://localhost:8080/api/backups/a7b554cb-e08d-4428-9ea9-11bbce16bb72/restore \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Java 21 or later
-- Maven 3.9+
-
-### Build
-
-```bash
-mvn clean package
-```
-
-### Run Modes
-
-#### 1. Interactive CLI Mode (Default)
-```bash
-java -jar target/ThreadVault-1.0-SNAPSHOT.jar
-```
-
-#### 2. Spring Boot Web & REST API Mode
-```bash
-java -jar target/ThreadVault-1.0-SNAPSHOT.jar --server
-```
-
----
-
-## Concurrency & Thread Safety
-
-| Component | Concurrency Model | Purpose |
+| Method | Endpoint | Description |
 |---|---|---|
-| `BlockingQueue<FileTask>` | Thread-safe queue | Coordinates producer scanner and consumer workers |
-| `ExecutorService` | Fixed worker pool | Parallel file hashing, dedup, and compression |
-| `BackupEventHub` | `ConcurrentHashMap` & `CopyOnWriteArrayList` | Non-blocking domain event distribution |
-| `SseEmitter` | Spring Async Web | Long-lived streaming with automatic leak-free subscriber cleanup |
-| `MetadataStore` | `ConcurrentHashMap` | Fast O(1) concurrent lookups |
-| `BackupStatistics` | `AtomicInteger` & `AtomicLong` | Thread-safe metric accumulators |
+| `POST` | `/api/backups` | Submits an asynchronous backup job (`202 Accepted`) |
+| `GET` | `/api/backups/{id}` | Retrieves backup job progress, status, and statistics |
+| `GET` | `/api/backups` | Lists all historical and active backup jobs |
+| `GET` | `/api/backups/{id}/stream` | Streams live Server-Sent Events (SSE) progress |
+| `POST` | `/api/backups/{id}/restore` | Restores backed-up files from metadata catalog |
+| `GET` | `/api/catalog` | Retrieves storage reduction metrics and deduplication summary |
+| `GET` | `/api/catalog/files` | Queries paginated catalog files with path and hash filters |
+| `GET` | `/actuator/health` | Application and storage subsystem health status |
 
-## Web Dashboard
-
-ThreadVault provides a modern web dashboard for:
-
-- **Backup Management**: Configure source directory, destination, and worker thread pool size.
-- **Live Backup Progress**: Real-time progress bar, file counters, and live activity streaming via Server-Sent Events (SSE).
-- **Backup History**: Inspect historical backup jobs, durations, stored sizes, and space savings.
-- **Catalog Inspection**: Query content-addressed archives with path/hash filters, pagination, and SHA-256 copy helpers.
-- **Deduplication Statistics**: Visual storage footprint comparison and space saving metrics.
-- **Restore Operations**: Execute one-click repository restoration back to disk.
-
-The dashboard communicates with the Spring Boot REST API and consumes Server-Sent Events for real-time backup progress.
-
-### Running the Web Dashboard
-
-1. **Start the Java Backend Server**:
-   ```bash
-   java -jar target/ThreadVault-1.0-SNAPSHOT.jar --server
-   ```
-   *(Runs on `http://localhost:8080`)*
-
-2. **Start the Next.js Frontend**:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-   *(Access the dashboard at `http://localhost:3000`)*
+Interactive API documentation and schema models are available at `/swagger-ui.html`.
 
 ---
 
-Made With Love 🧡
+## Testing
 
-©2026 Ayesha’s ThreadVault. All rights reserved.
+```bash
+# Run Java Backend Test Suite (31 unit & integration tests)
+mvn clean test
+
+# Run Frontend Lint
+cd frontend && npm run lint
+
+# Run Frontend Production Build
+cd frontend && npm run build
+```
+
+---
+
+## License
+
+Apache 2.0 License. © 2026 ThreadVault Engineering.

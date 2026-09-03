@@ -8,6 +8,8 @@ import event.BackupEventPublisher;
 import event.BackupEventType;
 import incremental.IncrementalBackupEngine;
 import metadata.FileMetadata;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scanner.FileTask;
 import stats.BackupStatistics;
 
@@ -18,6 +20,7 @@ import java.util.concurrent.BlockingQueue;
 
 public class BackupWorker implements Runnable {
 
+    private static final Logger logger = LoggerFactory.getLogger(BackupWorker.class);
     private static final int MAX_RETRIES = 3;
 
     private final BlockingQueue<FileTask> fileQueue;
@@ -78,12 +81,7 @@ public class BackupWorker implements Runnable {
                 FileTask task = fileQueue.take();
 
                 if (task == FileTask.POISON_PILL) {
-
-                    System.out.printf(
-                            "[%s] Shutting down.%n",
-                            workerName
-                    );
-
+                    logger.debug("[{}] Shutting down.", workerName);
                     break;
                 }
 
@@ -92,9 +90,7 @@ public class BackupWorker implements Runnable {
             }
 
         } catch (InterruptedException e) {
-
             Thread.currentThread().interrupt();
-
         }
 
     }
@@ -118,17 +114,9 @@ public class BackupWorker implements Runnable {
                  * Incremental Backup Check
                  */
                 if (!incrementalBackupEngine.shouldBackup(file)) {
-
-                    System.out.printf(
-                            "[%s] Unchanged : %s%n",
-                            workerName,
-                            file.getFileName()
-                    );
-
+                    logger.debug("[{}] Unchanged : {}", workerName, file.getFileName());
                     statistics.incrementalSkipped();
-
                     publishEvent(BackupEventType.FILE_SKIPPED, file.toString(), task.getSize());
-
                     return;
                 }
 
@@ -142,13 +130,7 @@ public class BackupWorker implements Runnable {
                  * Deduplication Check
                  */
                 if (deduplicationEngine.isDuplicate(hash, file)) {
-
-                    System.out.printf(
-                            "[%s] Duplicate Skipped : %s%n",
-                            workerName,
-                            file.getFileName()
-                    );
-
+                    logger.debug("[{}] Duplicate Skipped : {}", workerName, file.getFileName());
                     statistics.duplicateSkipped();
 
                     // Re-use existing compressed archive for metadata indexing & restore
@@ -180,7 +162,6 @@ public class BackupWorker implements Runnable {
                     metadataQueue.put(metadata);
 
                     publishEvent(BackupEventType.FILE_DEDUPLICATED, file.toString(), task.getSize());
-
                     return;
                 }
 
@@ -205,23 +186,14 @@ public class BackupWorker implements Runnable {
                  */
                 FileMetadata metadata =
                         new FileMetadata(
-
                                 file.toString(),
-
                                 hash,
-
                                 backupLocation.toString(),
-
                                 task.getSize(),
-
                                 compressedSize,
-
                                 LocalDateTime.now().toString(),
-
                                 lastModified,
-
                                 false
-
                         );
 
                 /*
@@ -234,18 +206,10 @@ public class BackupWorker implements Runnable {
                         compressedSize
                 );
 
-                System.out.printf(
-                        "[%s] Backed Up : %s -> %s%n",
-                        workerName,
-                        file.getFileName(),
-                        backupLocation.getFileName()
-                );
+                logger.debug("[{}] Backed Up : {} -> {}", workerName, file.getFileName(), backupLocation.getFileName());
 
                 publishEvent(BackupEventType.FILE_PROCESSED, file.toString(), task.getSize());
 
-                /*
-                 * SUCCESS
-                 */
                 return;
 
             }
@@ -258,26 +222,12 @@ public class BackupWorker implements Runnable {
 
                 attempts++;
 
-                System.err.printf(
-                        "[%s] Retry %d/%d : %s%n",
-                        workerName,
-                        attempts,
-                        MAX_RETRIES,
-                        file.getFileName()
-                );
+                logger.warn("[{}] Retry {}/{} : {}", workerName, attempts, MAX_RETRIES, file.getFileName());
 
                 if (attempts == MAX_RETRIES) {
-
                     statistics.fileFailed();
-
-                    System.err.printf(
-                            "[%s] FAILED : %s%n",
-                            workerName,
-                            file
-                    );
-
+                    logger.error("[{}] FAILED : {}", workerName, file);
                     publishEvent(BackupEventType.FILE_FAILED, file.toString(), task.getSize());
-
                 }
 
             }

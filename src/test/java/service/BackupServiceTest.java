@@ -58,8 +58,8 @@ public class BackupServiceTest {
     void testSubmitBackup_CreatesJobAndStartsAsynchronously() throws IOException, InterruptedException {
         Path testFile1 = tempDir.resolve("test-file-1.txt");
         Path testFile2 = tempDir.resolve("test-file-2.txt");
-        Files.writeString(testFile1, "Hello from test file 1");
-        Files.writeString(testFile2, "Hello from test file 2");
+        Files.writeString(testFile1, "Hello from test file 1 " + java.util.UUID.randomUUID());
+        Files.writeString(testFile2, "Hello from test file 2 " + java.util.UUID.randomUUID());
 
         BackupRequest request = new BackupRequest(tempDir.toString(), "backup_storage", 2);
         BackupJobResponse response = backupService.submitBackup(request);

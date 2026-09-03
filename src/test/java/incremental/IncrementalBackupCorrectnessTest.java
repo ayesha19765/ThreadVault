@@ -30,15 +30,16 @@ class IncrementalBackupCorrectnessTest {
     @Test
     void testIncrementalLifecycleRuns() throws Exception {
         // --- Run 1: Initial Backup ---
+        String runId = java.util.UUID.randomUUID().toString();
         Path docDir = sourceDir.resolve("documents");
         Files.createDirectories(docDir);
         Path file1 = docDir.resolve("report.txt");
-        Files.writeString(file1, "Initial report content version 1.0");
+        Files.writeString(file1, "Initial report content version 1.0 " + runId);
 
         Path binDir = sourceDir.resolve("data");
         Files.createDirectories(binDir);
         Path file2 = binDir.resolve("sample.bin");
-        byte[] binaryData = new byte[] {0x10, 0x20, 0x30, 0x40, 0x50};
+        byte[] binaryData = ("Unique binary data " + runId).getBytes();
         Files.write(file2, binaryData);
 
         BackupStatistics run1Stats = backupManager.startBackup(sourceDir.toString(), 2);
@@ -54,7 +55,7 @@ class IncrementalBackupCorrectnessTest {
 
         // --- Run 3: Modify One File ---
         Thread.sleep(100); // Ensure timestamp difference
-        Files.writeString(file1, "Updated report content version 2.0 - modified");
+        Files.writeString(file1, "Updated report content version 2.0 - modified " + runId);
         BackupStatistics run3Stats = backupManager.startBackup(sourceDir.toString(), 2);
         assertEquals(2, run3Stats.getFilesScanned(), "Run 3: Expected 2 files scanned");
         assertEquals(1, run3Stats.getFilesBackedUp(), "Run 3: Expected modified file backed up");
@@ -64,7 +65,7 @@ class IncrementalBackupCorrectnessTest {
         Path nestedDir = sourceDir.resolve("nested");
         Files.createDirectories(nestedDir);
         Path file3 = nestedDir.resolve("new_file.txt");
-        Files.writeString(file3, "New nested file content");
+        Files.writeString(file3, "New nested file content " + runId);
 
         BackupStatistics run4Stats = backupManager.startBackup(sourceDir.toString(), 2);
         assertEquals(3, run4Stats.getFilesScanned(), "Run 4: Expected 3 files scanned");
@@ -73,7 +74,7 @@ class IncrementalBackupCorrectnessTest {
 
         // --- Run 5: Duplicate Content File ---
         Path file4 = docDir.resolve("report-copy.txt");
-        Files.writeString(file4, "Updated report content version 2.0 - modified"); // identical to file1
+        Files.writeString(file4, "Updated report content version 2.0 - modified " + runId); // identical to file1
 
         BackupStatistics run5Stats = backupManager.startBackup(sourceDir.toString(), 2);
         assertEquals(4, run5Stats.getFilesScanned(), "Run 5: Expected 4 files scanned");

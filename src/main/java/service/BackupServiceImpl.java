@@ -12,6 +12,8 @@ import exception.BackupNotFoundException;
 import jakarta.annotation.PreDestroy;
 import model.BackupJob;
 import model.BackupStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,8 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class BackupServiceImpl implements BackupService {
+
+    private static final Logger logger = LoggerFactory.getLogger(BackupServiceImpl.class);
 
     private final BackupJobRegistry jobRegistry;
     private final BackupManager backupManager;
@@ -92,6 +96,7 @@ public class BackupServiceImpl implements BackupService {
         );
 
         jobRegistry.register(job);
+        logger.info("Submitted backup job [{}] for path: {} with {} workers", backupId, request.getSource(), workers);
 
         jobExecutor.submit(() -> {
             job.setStatus(BackupStatus.RUNNING);
@@ -106,15 +111,23 @@ public class BackupServiceImpl implements BackupService {
                 );
                 job.setStatus(BackupStatus.COMPLETED);
 
+                double spaceSaved = 0.0;
+                if (job.getStatistics().getOriginalBytes() > 0) {
+                    double compPct = (job.getStatistics().getCompressedBytes() * 100.0) / job.getStatistics().getOriginalBytes();
+                    spaceSaved = Math.max(0.0, Math.round((100.0 - compPct) * 100.0) / 100.0);
+                }
+
+                logger.info("Backup job [{}] completed. Files scanned: {}, backed up: {}, deduplicated: {}, space saved: {}%",
+                        job.getId(),
+                        job.getStatistics().getFilesScanned(),
+                        job.getStatistics().getFilesBackedUp(),
+                        job.getStatistics().getDuplicatesSkipped(),
+                        spaceSaved);
+
                 if (eventPublisher != null) {
-                    double spaceSaved = 0.0;
-                    if (job.getStatistics().getOriginalBytes() > 0) {
-                        double compPct = (job.getStatistics().getCompressedBytes() * 100.0) / job.getStatistics().getOriginalBytes();
-                        spaceSaved = Math.max(0.0, Math.round((100.0 - compPct) * 100.0) / 100.0);
-                    }
                     eventPublisher.publish(
                             BackupEvent.builder(job.getId(), BackupEventType.BACKUP_COMPLETED)
-                                    .stats(
+                                     .stats(
                                             job.getStatistics().getFilesScanned(),
                                             job.getStatistics().getFilesBackedUp(),
                                             job.getStatistics().getIncrementalSkipped(),
@@ -131,6 +144,7 @@ public class BackupServiceImpl implements BackupService {
                 job.setStatus(BackupStatus.FAILED);
                 String err = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 job.setErrorMessage(err);
+                logger.error("Backup job [{}] failed: {}", job.getId(), err, e);
 
                 if (eventPublisher != null) {
                     eventPublisher.publish(
@@ -196,6 +210,7 @@ public class BackupServiceImpl implements BackupService {
                     restoredCount
             );
         } catch (Exception e) {
+            logger.error("Restore operation failed: {}", e.getMessage(), e);
             throw new RuntimeException("Restore operation failed: " + e.getMessage(), e);
         }
     }
@@ -223,6 +238,7 @@ public class BackupServiceImpl implements BackupService {
 
     @PreDestroy
     public void shutdown() {
+        logger.info("Gracefully shutting down BackupService job executor...");
         jobExecutor.shutdown();
         try {
             if (!jobExecutor.awaitTermination(5, TimeUnit.SECONDS)) {

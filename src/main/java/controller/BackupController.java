@@ -3,12 +3,23 @@ package controller;
 import dto.request.BackupRequest;
 import dto.request.RestoreRequest;
 import dto.response.BackupJobResponse;
+import dto.response.ErrorResponse;
 import dto.response.RestoreResponse;
 import event.BackupEvent;
 import event.BackupEventPublisher;
 import event.BackupEventType;
-import model.BackupStatus;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import model.BackupStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -31,8 +42,10 @@ import java.util.function.Consumer;
  */
 @RestController
 @RequestMapping("/api/backups")
+@Tag(name = "Backup Operations", description = "Endpoints for initiating backups, inspecting live status, streaming events, and restoring archives")
 public class BackupController {
 
+    private static final Logger logger = LoggerFactory.getLogger(BackupController.class);
     private static final long SSE_TIMEOUT_MS = 30 * 60 * 1000L; // 30 minutes
 
     private final BackupService backupService;
@@ -50,7 +63,15 @@ public class BackupController {
      * @return 202 Accepted with the created backup job response
      */
     @PostMapping
+    @Operation(summary = "Start Backup Job", description = "Submits a new backup job for asynchronous execution using worker thread pools.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "202", description = "Backup job accepted and queued for execution",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = BackupJobResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request or non-existent source directory",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
     public ResponseEntity<BackupJobResponse> startBackup(@Valid @RequestBody BackupRequest request) {
+        logger.info("Received backup request for source: {}, workers: {}", request.getSource(), request.getWorkers());
         BackupJobResponse response = backupService.submitBackup(request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
@@ -62,7 +83,17 @@ public class BackupController {
      * @return 200 OK with backup job details
      */
     @GetMapping("/{id}")
-    public ResponseEntity<BackupJobResponse> getBackupById(@PathVariable("id") String id) {
+    @Operation(summary = "Get Backup Status", description = "Retrieves the execution status, metrics, and progress of a specific backup job.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Backup job details retrieved successfully",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = BackupJobResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Backup job ID not found",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<BackupJobResponse> getBackupById(
+            @Parameter(description = "Unique UUID of the backup job", required = true)
+            @PathVariable("id") String id
+    ) {
         BackupJobResponse response = backupService.getBackupJob(id);
         return ResponseEntity.ok(response);
     }
@@ -73,6 +104,9 @@ public class BackupController {
      * @return 200 OK with list of backup jobs
      */
     @GetMapping
+    @Operation(summary = "List All Backups", description = "Retrieves all active, completed, and failed backup jobs sorted by creation timestamp descending.")
+    @ApiResponse(responseCode = "200", description = "List of backup jobs",
+            content = @Content(mediaType = "application/json", array = @ArraySchema(schema = @Schema(implementation = BackupJobResponse.class))))
     public ResponseEntity<List<BackupJobResponse>> getAllBackups() {
         List<BackupJobResponse> responses = backupService.getAllBackupJobs();
         return ResponseEntity.ok(responses);
@@ -85,13 +119,20 @@ public class BackupController {
      * @return SseEmitter streaming backup progress
      */
     @GetMapping(value = "/{id}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamBackupProgress(@PathVariable("id") String id) {
-        // Validate job exists (throws BackupNotFoundException if absent)
+    @Operation(summary = "Stream Backup Progress (SSE)", description = "Establishes a real-time Server-Sent Events (SSE) stream delivering live backup events.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Real-time event stream connected",
+                    content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE)),
+            @ApiResponse(responseCode = "404", description = "Backup job ID not found",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public SseEmitter streamBackupProgress(
+            @Parameter(description = "Unique UUID of the backup job", required = true)
+            @PathVariable("id") String id
+    ) {
         BackupJobResponse initialJob = backupService.getBackupJob(id);
-
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
 
-        // If job is already finished, emit current state and complete immediately
         if (initialJob.getStatus() == BackupStatus.COMPLETED || initialJob.getStatus() == BackupStatus.FAILED) {
             try {
                 emitter.send(SseEmitter.event()
@@ -107,7 +148,6 @@ public class BackupController {
             return emitter;
         }
 
-        // Define thread-safe event listener for active backup
         final Consumer<BackupEvent> listener = new Consumer<>() {
             @Override
             public void accept(BackupEvent event) {
@@ -128,7 +168,6 @@ public class BackupController {
             }
         };
 
-        // Clean up subscriber references on completion, timeout, or client disconnect
         emitter.onCompletion(() -> eventPublisher.unsubscribe(id, listener));
         emitter.onTimeout(() -> {
             eventPublisher.unsubscribe(id, listener);
@@ -136,10 +175,8 @@ public class BackupController {
         });
         emitter.onError(e -> eventPublisher.unsubscribe(id, listener));
 
-        // Subscribe to event hub
         eventPublisher.subscribe(id, listener);
 
-        // Send initial connection handshake with current job snapshot
         try {
             emitter.send(SseEmitter.event()
                     .name("INITIAL_STATE")
@@ -160,10 +197,21 @@ public class BackupController {
      * @return 200 OK with restore result summary
      */
     @PostMapping("/{id}/restore")
+    @Operation(summary = "Restore Backup", description = "Reconstructs backed-up files from compressed archives and verifies directory structure.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Files restored successfully",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = RestoreResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Backup ID not found",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "500", description = "Restore error or path traversal rejection",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
     public ResponseEntity<RestoreResponse> restoreBackup(
+            @Parameter(description = "Unique UUID of the backup job", required = true)
             @PathVariable("id") String id,
             @RequestBody(required = false) RestoreRequest request
     ) {
+        logger.info("Restore requested for backupId: {}", id);
         RestoreResponse response = backupService.restoreBackup(id, request != null ? request : new RestoreRequest());
         return ResponseEntity.ok(response);
     }

@@ -9,6 +9,8 @@ import incremental.IncrementalBackupEngine;
 import metadata.FileMetadata;
 import metadata.MetadataStore;
 import metadata.MetadataWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scanner.DirectoryScanner;
 import scanner.FileTask;
 import stats.BackupStatistics;
@@ -24,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class BackupManager {
 
+    private static final Logger logger = LoggerFactory.getLogger(BackupManager.class);
     private static final int NUMBER_OF_WORKERS = 4;
     private static final int FILE_QUEUE_CAPACITY = 100;
     private static final int METADATA_QUEUE_CAPACITY = 100;
@@ -52,12 +55,7 @@ public class BackupManager {
         final int workers = workerCount > 0 ? workerCount : NUMBER_OF_WORKERS;
         final BackupStatistics stats = statistics != null ? statistics : new BackupStatistics();
 
-        System.out.println("======================================");
-        System.out.println("       Mini Backup Engine");
-        System.out.println("======================================");
-        System.out.println("Scanning Folder : " + folderPath);
-        System.out.println("Worker Threads  : " + workers);
-        System.out.println();
+        logger.info("Starting backup for: {} with {} worker threads (jobId: {})", folderPath, workers, backupId);
 
         if (eventPublisher != null && backupId != null) {
             eventPublisher.publish(
@@ -240,15 +238,8 @@ public class BackupManager {
 
         }
 
-        /*
-         * Print backup summary.
-         */
-        stats.printSummary();
-
-        System.out.println();
-        System.out.println("======================================");
-        System.out.println(" Backup Completed Successfully");
-        System.out.println("======================================");
+        logger.info("Backup finished successfully for: {} (Scanned: {}, BackedUp: {}, Deduplicated: {}, IncrementalSkipped: {})",
+                folderPath, stats.getFilesScanned(), stats.getFilesBackedUp(), stats.getDuplicatesSkipped(), stats.getIncrementalSkipped());
 
         return stats;
     }

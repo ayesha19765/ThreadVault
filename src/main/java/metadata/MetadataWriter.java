@@ -1,5 +1,8 @@
 package metadata;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.concurrent.BlockingQueue;
 
 /**
@@ -11,6 +14,8 @@ import java.util.concurrent.BlockingQueue;
  * file concurrently.
  */
 public class MetadataWriter implements Runnable {
+
+    private static final Logger logger = LoggerFactory.getLogger(MetadataWriter.class);
 
     /*
      * Sentinel object indicating that no more
@@ -26,10 +31,8 @@ public class MetadataWriter implements Runnable {
             BlockingQueue<FileMetadata> metadataQueue,
             MetadataStore metadataStore
     ) {
-
         this.metadataQueue = metadataQueue;
         this.metadataStore = metadataStore;
-
     }
 
     @Override
@@ -43,28 +46,18 @@ public class MetadataWriter implements Runnable {
                         metadataQueue.take();
 
                 if (metadata == POISON) {
-
                     break;
-
                 }
 
                 metadataStore.saveMetadata(metadata);
 
             }
 
-            System.out.printf(
-                    "[%s] Shutting down.%n",
-                    Thread.currentThread().getName()
-            );
+            logger.debug("[{}] Shutting down.", Thread.currentThread().getName());
 
         } catch (InterruptedException e) {
-
-            System.err.println(
-                    "Metadata Writer interrupted."
-            );
-
+            logger.warn("Metadata Writer interrupted.");
             Thread.currentThread().interrupt();
-
         }
 
     }

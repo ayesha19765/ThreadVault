@@ -2,6 +2,8 @@ package restore;
 
 import metadata.FileMetadata;
 import metadata.MetadataStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,6 +23,7 @@ import java.util.zip.ZipInputStream;
  */
 public class RestoreManager {
 
+    private static final Logger logger = LoggerFactory.getLogger(RestoreManager.class);
     private static final Path DEFAULT_RESTORE_DIRECTORY =
             Path.of("restore");
 
@@ -60,12 +63,15 @@ public class RestoreManager {
         List<FileMetadata> metadataList =
                 metadataStore.getAllMetadata();
 
+        logger.info("Starting restore operation to directory: {} (Total catalog entries: {})", restoreDirectory, metadataList.size());
+
         int restoredCount = 0;
         for (FileMetadata metadata : metadataList) {
             restore(metadata);
             restoredCount++;
         }
 
+        logger.info("Restore operation completed successfully. Restored {} files into: {}", restoredCount, restoreDirectory);
         return restoredCount;
     }
 
@@ -80,7 +86,7 @@ public class RestoreManager {
                 Path.of(metadata.getBackupPath());
 
         if (!Files.exists(zipFile)) {
-            System.err.printf("[Restore] Warning: Backup archive not found for %s (%s). Skipping.%n",
+            logger.warn("[Restore] Backup archive not found for {} ({}). Skipping.",
                     metadata.getOriginalPath(), zipFile);
             return;
         }
@@ -144,10 +150,7 @@ public class RestoreManager {
                 }
             }
 
-            System.out.printf(
-                    "[Restore] Restored : %s%n",
-                    outputFile
-            );
+            logger.debug("[Restore] Restored : {}", outputFile);
 
         } catch (IOException e) {
             throw new RuntimeException(

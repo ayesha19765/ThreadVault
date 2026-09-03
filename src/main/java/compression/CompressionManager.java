@@ -1,10 +1,15 @@
 package compression;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -14,38 +19,39 @@ import java.util.zip.ZipOutputStream;
  * Compressed files are stored using their hash as
  * the filename, enabling content-addressable storage
  * and deduplication.
+ *
+ * Writes are performed atomically using temporary files
+ * to prevent concurrent read of half-written archives.
  */
 public class CompressionManager {
 
-    private static final Path BACKUP_FOLDER =
-            Path.of("backup_storage");
+    private static final Logger logger = LoggerFactory.getLogger(CompressionManager.class);
+    private static final Path DEFAULT_BACKUP_FOLDER =
+            Path.of(System.getenv().getOrDefault("THREADVAULT_STORAGE_PATH", "backup_storage"));
 
     private static final int BUFFER_SIZE = 8192;
 
+    private final Path backupFolder;
+
     public CompressionManager() {
+        this(DEFAULT_BACKUP_FOLDER);
+    }
 
+    public CompressionManager(Path backupFolder) {
+        this.backupFolder = backupFolder != null ? backupFolder : DEFAULT_BACKUP_FOLDER;
         try {
-
-            Files.createDirectories(BACKUP_FOLDER);
-
+            Files.createDirectories(this.backupFolder);
         } catch (IOException e) {
-
             throw new RuntimeException(
                     "Unable to create backup directory: "
-                            + BACKUP_FOLDER,
+                            + this.backupFolder,
                     e
             );
-
         }
-
     }
 
     /**
-     * Compresses a source file into ZIP format.
-     *
-     * The generated ZIP filename is based on the
-     * file hash, allowing duplicate content to share
-     * the same backup object.
+     * Compresses a source file into ZIP format atomically.
      *
      * @param sourceFile file to compress
      * @param hash content hash used as backup identity
@@ -57,84 +63,74 @@ public class CompressionManager {
     ) {
 
         if (!Files.exists(sourceFile)) {
-
             throw new RuntimeException(
                     "Source file does not exist: "
                             + sourceFile
             );
-
         }
 
         Path zipFile =
-                BACKUP_FOLDER.resolve(hash + ".zip");
+                backupFolder.resolve(hash + ".zip");
 
-
-        /*
-         * Already compressed content exists.
-         * Reuse it for deduplication.
-         */
         if (Files.exists(zipFile)) {
-
             return zipFile;
-
         }
 
+        Path tempFile =
+                backupFolder.resolve(hash + ".zip.tmp." + UUID.randomUUID());
 
-        try (
-                InputStream input =
-                        Files.newInputStream(sourceFile);
+        try {
+            try (
+                    InputStream input =
+                            Files.newInputStream(sourceFile);
 
-                OutputStream output =
-                        Files.newOutputStream(zipFile);
+                    OutputStream output =
+                            Files.newOutputStream(tempFile);
 
-                ZipOutputStream zos =
-                        new ZipOutputStream(output)
+                    ZipOutputStream zos =
+                            new ZipOutputStream(output)
+            ) {
+                ZipEntry entry =
+                        new ZipEntry(
+                                sourceFile.getFileName()
+                                        .toString()
+                        );
 
-        ) {
+                zos.putNextEntry(entry);
 
-            ZipEntry entry =
-                    new ZipEntry(
-                            sourceFile.getFileName()
-                                    .toString()
+                byte[] buffer =
+                        new byte[BUFFER_SIZE];
+
+                int bytesRead;
+                while ((bytesRead = input.read(buffer)) != -1) {
+                    zos.write(
+                            buffer,
+                            0,
+                            bytesRead
                     );
+                }
 
-
-            zos.putNextEntry(entry);
-
-
-            byte[] buffer =
-                    new byte[BUFFER_SIZE];
-
-
-            int bytesRead;
-
-            while ((bytesRead = input.read(buffer)) != -1) {
-
-                zos.write(
-                        buffer,
-                        0,
-                        bytesRead
-                );
-
+                zos.closeEntry();
             }
 
-
-            zos.closeEntry();
-
+            try {
+                Files.move(tempFile, zipFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                Files.move(tempFile, zipFile, StandardCopyOption.REPLACE_EXISTING);
+            }
 
             return zipFile;
 
-
         } catch (IOException e) {
-
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (IOException ignored) {
+            }
             throw new RuntimeException(
                     "Failed to compress file: "
                             + sourceFile,
                     e
             );
-
         }
-
     }
-
 }
