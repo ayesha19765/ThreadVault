@@ -28,17 +28,21 @@ public class CompressionManager {
     private static final Logger logger = LoggerFactory.getLogger(CompressionManager.class);
     private static final Path DEFAULT_BACKUP_FOLDER =
             Path.of(System.getenv().getOrDefault("THREADVAULT_STORAGE_PATH", "backup_storage"));
+    private static Path getDefaultBackupFolder() {
+        return Path.of(System.getProperty("THREADVAULT_STORAGE_PATH",
+                System.getenv().getOrDefault("THREADVAULT_STORAGE_PATH", "backup_storage")));
+    }
 
     private static final int BUFFER_SIZE = 8192;
 
     private final Path backupFolder;
 
     public CompressionManager() {
-        this(DEFAULT_BACKUP_FOLDER);
+        this(getDefaultBackupFolder());
     }
 
     public CompressionManager(Path backupFolder) {
-        this.backupFolder = backupFolder != null ? backupFolder : DEFAULT_BACKUP_FOLDER;
+        this.backupFolder = backupFolder != null ? backupFolder : getDefaultBackupFolder();
         try {
             Files.createDirectories(this.backupFolder);
         } catch (IOException e) {

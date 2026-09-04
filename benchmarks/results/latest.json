@@ -1,0 +1,61 @@
+{
+  "timestamp" : "Fri Sep 04 23:08:27 IST 2026",
+  "system" : {
+    "os" : "Mac OS X (aarch64)",
+    "javaVersion" : "25.0.2 (Homebrew)",
+    "cpuCores" : 8,
+    "maxHeapMB" : 2048
+  },
+  "benchmarks" : [ {
+    "workloadName" : "Small Dataset",
+    "totalFiles" : 1000,
+    "totalInputBytes" : 8046663,
+    "totalInputMB" : 7.67,
+    "storedBytes" : 8189443,
+    "storedMB" : 7.81,
+    "filesDeduplicated" : 0,
+    "filesBackedUp" : 1000,
+    "sequentialTimeMs" : 2397,
+    "concurrent4TimeMs" : 1058,
+    "concurrent8TimeMs" : 1002,
+    "throughputMBs" : 7.3,
+    "deduplicationPercentage" : 0.0,
+    "storageSavedPercentage" : -1.8,
+    "speedup4x" : 2.27,
+    "speedup8x" : 2.39
+  }, {
+    "workloadName" : "Medium Dataset",
+    "totalFiles" : 10000,
+    "totalInputBytes" : 56418274,
+    "totalInputMB" : 53.8,
+    "storedBytes" : 57866054,
+    "storedMB" : 55.19,
+    "filesDeduplicated" : 0,
+    "filesBackedUp" : 10000,
+    "sequentialTimeMs" : 90240,
+    "concurrent4TimeMs" : 80090,
+    "concurrent8TimeMs" : 69759,
+    "throughputMBs" : 0.7,
+    "deduplicationPercentage" : 0.0,
+    "storageSavedPercentage" : -2.6,
+    "speedup4x" : 1.13,
+    "speedup8x" : 1.29
+  }, {
+    "workloadName" : "Duplicate-Heavy Dataset",
+    "totalFiles" : 10000,
+    "totalInputBytes" : 71435254,
+    "totalInputMB" : 68.13,
+    "storedBytes" : 21860003,
+    "storedMB" : 20.85,
+    "filesDeduplicated" : 7000,
+    "filesBackedUp" : 3000,
+    "sequentialTimeMs" : 84393,
+    "concurrent4TimeMs" : 63004,
+    "concurrent8TimeMs" : 65936,
+    "throughputMBs" : 1.1,
+    "deduplicationPercentage" : 70.0,
+    "storageSavedPercentage" : 69.4,
+    "speedup4x" : 1.34,
+    "speedup8x" : 1.28
+  } ]
+}

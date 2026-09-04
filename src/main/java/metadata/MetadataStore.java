@@ -22,8 +22,10 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class MetadataStore {
 
-    private static final Path DEFAULT_METADATA_FOLDER =
-            Path.of("metadata");
+    private static Path getDefaultMetadataFolder() {
+        return Path.of(System.getProperty("THREADVAULT_METADATA_PATH",
+                System.getenv().getOrDefault("THREADVAULT_METADATA_PATH", "metadata")));
+    }
 
     private final Path metadataFolder;
     private final Path metadataFilePath;
@@ -32,11 +34,11 @@ public class MetadataStore {
     private volatile long lastLoadedTime = 0L;
 
     public MetadataStore() {
-        this(DEFAULT_METADATA_FOLDER);
+        this(getDefaultMetadataFolder());
     }
 
     public MetadataStore(Path metadataFolder) {
-        this.metadataFolder = metadataFolder != null ? metadataFolder : DEFAULT_METADATA_FOLDER;
+        this.metadataFolder = metadataFolder != null ? metadataFolder : getDefaultMetadataFolder();
         this.metadataFilePath = this.metadataFolder.resolve("metadata.json");
 
         try {
