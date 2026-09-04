@@ -1,391 +1,801 @@
 # ThreadVault
 
-[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://www.oracle.com/java/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg)](https://nextjs.org/)
-[![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://www.docker.com/)
-[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0%20%7C%20Swagger-green.svg)](http://localhost:8080/swagger-ui.html)
-[![Architecture](https://img.shields.io/badge/Architecture-Producer--Consumer-success.svg)]()
+![Java](https://img.shields.io/badge/Java-21-orange.svg)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen.svg)
+![Next.js](https://img.shields.io/badge/Next.js-16.3-black.svg)
+![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)
+![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0%20%7C%20Swagger-green.svg)
+![Architecture](https://img.shields.io/badge/Architecture-Producer--Consumer-success.svg)
 
-**ThreadVault** is a high-performance, concurrent incremental backup and content-based deduplication engine built with **Java 21**, **Spring Boot**, and **Next.js**. It coordinates bounded multithreaded worker pools to scan filesystem hierarchies, skip unchanged files via timestamp metadata checks, compute SHA-256 cryptographic digests, deduplicate identical payloads across directories, atomically compress archives into ZIP format, persist metadata catalogs, and stream live execution events over Server-Sent Events (SSE).
+**ThreadVault** is a concurrent incremental backup engine built with **Java 21**, with a **Spring Boot REST API** and a **Next.js dashboard** on top.
 
----
+The main idea was to build a backup system that doesn't simply copy every file every time. ThreadVault checks whether a file has actually changed, deduplicates identical files using SHA-256, compresses data concurrently, and keeps enough metadata to restore the original directory structure.
 
-## Why ThreadVault?
-
-Naive backup utilities (e.g. recursive copy scripts) suffer from fundamental engineering bottlenecks:
-1. **Redundant I/O and Disk Saturation**: Re-copying unmodified files wastes bandwidth and degrades storage media.
-2. **Storage Bloat**: Duplicate files (shared libraries, copied documents, assets) multiply storage footprint linearly.
-3. **Thread Contention & Memory Exhaustion**: Creating unbounded threads per file (`new Thread()`) quickly crashes the JVM (`OutOfMemoryError: unable to create native thread`) on large directory trees.
-4. **Data Corruption Under Concurrency**: Concurrent disk writes without synchronization or atomic moves create partially written, corrupted archives.
-5. **Lack of Real-Time Visibility**: Monolithic backup operations block silently without observable progress.
-
-ThreadVault solves these challenges using **bounded Producer–Consumer concurrency**, **content-addressable deduplication**, **atomic filesystem operations**, and **non-blocking SSE progress streaming**.
+I also wanted to use the project to work through some practical systems problems: **bounded concurrency, backpressure, concurrent data structures, atomic file operations, failure handling, and real-time progress reporting**.
 
 ---
 
-## Key Features
+## Why I Built This
 
-- **Producer–Consumer Concurrency**: Decouples directory scanning from compression using bounded `ArrayBlockingQueue<FileTask>` queues and custom worker thread pools.
-- **Content-Based Deduplication**: SHA-256 cryptographic hashing ensures identical data across different directories is compressed and stored only once (`backup_storage/<hash>.zip`).
-- **Atomic Incremental Backups**: $\mathcal{O}(1)$ last-modified timestamp and file size checks skip unmodified files before hashing or compression.
-- **Atomic ZIP Compression**: Temporary-file writing (`.tmp.<uuid>`) with atomic filesystem moves (`ATOMIC_MOVE`) prevents concurrent readers from observing incomplete archives.
-- **Real-Time Observability**: Live progress broadcasting via Server-Sent Events (SSE) with automatic subscriber lifecycle cleanup.
-- **Strict Path Security**: Enforces canonical destination checks during restore (`toAbsolutePath().normalize().startsWith()`), completely blocking path traversal directory escapes (`../../`).
-- **Production-Ready Operations**: Custom Spring Boot Actuator health checks (`/actuator/health`), OpenAPI 3 / Swagger UI (`/swagger-ui.html`), graceful shutdown, SLF4J logging, and multi-stage Docker Compose deployment with persistent volumes.
+A simple recursive copy works for a small folder, but it starts running into problems as the number of files grows.
 
----
+For example:
 
-## System Architecture
+* Copying unchanged files wastes disk I/O.
+* The same file stored in multiple directories takes up storage multiple times.
+* Creating a thread for every file doesn't scale.
+* Multiple workers writing the same archive can leave behind corrupted or partial files.
+* A long-running backup is difficult to monitor if there is no progress information.
+
+ThreadVault is my attempt at addressing these problems with a relatively small, understandable architecture.
+
+The core ideas are:
 
 ```text
-                     Next.js Web Dashboard
-                     (React 19 / Port 3000)
-                              │
-                              │ REST API / SSE Stream
-                              ▼
-                     Spring Boot REST API
-                         (Port 8080)
-                              │
-                              ▼
-                  Application Service Layer
-                 (BackupService, CatalogService)
-                              │
-                              ▼
-                      ThreadVault Core
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
- DirectoryScanner       BackupWorker Pool       MetadataStore
-   (Producer)             (Consumers)         (O(1) Concurrent Index)
-        │                     │                     │
-        └──────────────┬──────┴─────────────────────┘
-                       │
-                       ▼
-        Incremental Check ──► SHA-256 Hash ──► Deduplication ──► Atomic ZIP
-                       │
-                       ▼
-              Backup Storage & Catalog
-               (Persistent Volumes)
+Incremental checks
+      ↓
+Bounded Producer-Consumer pipeline
+      ↓
+SHA-256 hashing
+      ↓
+Content-based deduplication
+      ↓
+Atomic ZIP creation
+      ↓
+Metadata persistence
+      ↓
+Live progress events
 ```
 
 ---
 
-## How It Works
+## What It Does
+
+ThreadVault supports:
+
+* Incremental backups
+* Concurrent file processing
+* Content-based deduplication
+* ZIP compression
+* Directory restoration
+* Real-time backup progress through SSE
+* Backup history and catalog information
+* REST APIs
+* CLI execution
+* Next.js web dashboard
+* Docker Compose deployment
+
+There is also a separate benchmark suite for testing how the backup pipeline behaves with different workloads.
+
+---
+
+## Architecture
 
 ```text
-User / REST Request
+                    Next.js Dashboard
+                       React / SSE
+                           │
+                           │ REST + SSE
+                           ▼
+                    Spring Boot API
+                           │
+                           ▼
+                    Service Layer
+                           │
+                           ▼
+                    ThreadVault Core
+                           │
+             ┌─────────────┼─────────────┐
+             ▼             ▼             ▼
+       DirectoryScanner  Workers     MetadataStore
+          Producer      Consumers
+             │             │             │
+             └─────────────┼─────────────┘
+                           │
+                           ▼
+                  Incremental Check
+                           │
+                           ▼
+                      SHA-256
+                           │
+                           ▼
+                    Deduplication
+                           │
+                           ▼
+                    Atomic ZIP
+                           │
+                           ▼
+                 Backup Storage
+```
+
+### Request / Backup Flow
+
+A backup request doesn't process every file directly inside the HTTP request.
+
+Instead:
+
+```text
+POST /api/backups
         ↓
-BackupController (Validates input, returns 202 Accepted with BackupJob ID)
+BackupController
         ↓
-BackupServiceImpl (Submits async task to background job executor)
+BackupService
         ↓
-DirectoryScanner (Walks directory tree, pushes FileTasks into bounded ArrayBlockingQueue)
+Background Backup Job
         ↓
-BackupWorker Pool (Pulls tasks concurrently from queue)
-   ├── Step 1: Incremental Check (Matches timestamp & size against MetadataStore; skips if unchanged)
-   ├── Step 2: Cryptographic Hash (Computes SHA-256 digest in 8KB buffer chunks)
-   ├── Step 3: Deduplication (Checks in-memory hash index; if duplicate, skips compression & reuses archive)
-   ├── Step 4: Atomic ZIP (Writes Deflate stream to .tmp.<uuid>, atomically renames to <hash>.zip)
-   └── Step 5: Metadata Enqueue (Pushes FileMetadata to metadata queue)
+DirectoryScanner
         ↓
-MetadataWriter (Single dedicated thread drains metadata queue and commits to metadata.json)
+Bounded FileTask Queue
         ↓
-BackupEventHub (Broadcasts real-time progress events to connected SSE client streams)
+Worker Pool
+        ↓
+Incremental Check
+        ↓
+SHA-256 + Deduplication
+        ↓
+Atomic ZIP
+        ↓
+MetadataWriter
+        ↓
+SSE Progress Events
+```
+
+This allows the API to return quickly while the actual backup continues in the background.
+
+---
+
+# The Interesting Parts
+
+## 1. Producer-Consumer Concurrency
+
+The backup pipeline uses a bounded `ArrayBlockingQueue<FileTask>` between the directory scanner and the worker threads.
+
+The scanner acts as the **producer**, while the backup workers are the **consumers**.
+
+```text
+DirectoryScanner
+      │
+      │ FileTask
+      ▼
+┌─────────────────────┐
+│ ArrayBlockingQueue  │
+│      capacity=100   │
+└─────────────────────┘
+      │
+      ├── Worker 1
+      ├── Worker 2
+      ├── Worker 3
+      └── Worker 4
+```
+
+### Why a bounded queue?
+
+Without a limit, a scanner could discover files much faster than workers can process them. That would mean accumulating a large number of tasks in memory.
+
+With a bounded queue, when the workers fall behind, the producer eventually blocks on:
+
+```java
+fileQueue.put(task);
+```
+
+This gives the system natural **backpressure**.
+
+The scanner doesn't need to know how fast the workers are. The queue handles that coordination.
+
+### Why not create one thread per file?
+
+Suppose a directory contains 50,000 files.
+
+Creating 50,000 threads would cause:
+
+* Huge memory usage
+* Excessive context switching
+* Thread creation overhead
+* More contention for disk I/O
+* Potential JVM failure from native thread exhaustion
+
+Instead, ThreadVault uses a fixed worker pool:
+
+```java
+Executors.newFixedThreadPool(workers);
+```
+
+The number of workers can therefore be controlled independently of the number of files.
+
+---
+
+## 2. Incremental Backups
+
+Before reading the contents of a file, ThreadVault checks whether the file appears unchanged.
+
+For each file, it first looks at:
+
+```text
+File size
+Last modified timestamp
+```
+
+The flow is:
+
+```text
+File discovered
+      ↓
+Look up previous metadata
+      ↓
+Same size + same timestamp?
+      │
+   ┌──┴──┐
+  YES    NO
+   │      │
+   ▼      ▼
+ SKIP   SHA-256
+          ↓
+      Deduplicate
+          ↓
+       Compress
+```
+
+This is useful because hashing a large file requires reading the entire file.
+
+If the metadata says the file hasn't changed, ThreadVault can skip that work entirely.
+
+---
+
+## 3. Content-Based Deduplication
+
+ThreadVault uses SHA-256 as the content identifier for stored files.
+
+For example:
+
+```text
+/docs/report.pdf
+/shared/report-copy.pdf
+```
+
+If both files contain exactly the same bytes, they produce the same SHA-256 hash.
+
+Instead of creating two archives:
+
+```text
+backup_storage/
+├── abc123.zip
+└── def456.zip
+```
+
+ThreadVault stores the content once:
+
+```text
+backup_storage/
+└── <sha256>.zip
+```
+
+The metadata for both original paths points to that same archive.
+
+During restore, the same archive can therefore be extracted to both original locations.
+
+This separates **where a file came from** from **where its content is stored**.
+
+---
+
+## 4. Atomic Compression
+
+Multiple workers can be processing files at the same time, so a worker should never expose an incomplete archive as if it were finished.
+
+ThreadVault first writes to a temporary file:
+
+```text
+<hash>.zip.tmp.<uuid>
+```
+
+Once compression finishes, it moves the temporary file to its final name using an atomic filesystem move where supported:
+
+```text
+temporary file
+      ↓
+complete ZIP
+      ↓
+ATOMIC_MOVE
+      ↓
+<sha256>.zip
+```
+
+This means readers don't see a half-written `<sha256>.zip`.
+
+It also makes recovery after a crash much simpler: finalized archives remain valid, while unfinished temporary files can be ignored or cleaned up.
+
+---
+
+## 5. Concurrent Deduplication
+
+Two workers can theoretically encounter identical files at almost the same time.
+
+Both might calculate:
+
+```text
+SHA-256 = abc123...
+```
+
+The deduplication index uses a `ConcurrentHashMap` and atomic insertion logic so workers can safely coordinate around the same content hash.
+
+The important part here isn't just using a concurrent collection—it is making sure the **check and insertion don't become a race condition** when multiple workers reach the same hash simultaneously.
+
+---
+
+## 6. Real-Time Progress with SSE
+
+Backups can take a while, so the frontend shouldn't have to repeatedly poll the server just to find out what is happening.
+
+ThreadVault uses **Server-Sent Events (SSE)**.
+
+The browser opens a stream:
+
+```text
+GET /api/backups/{id}/stream
+```
+
+The backend can then send events such as:
+
+```text
+FILE_PROCESSED
+FILE_DEDUPLICATED
+FILE_SKIPPED
+BACKUP_COMPLETED
+```
+
+The dashboard can update its progress without repeatedly making status requests.
+
+SSE was a good fit here because the communication is primarily **server → client**.
+
+---
+
+# Performance
+
+I included a small benchmark suite to see how the system behaves under different workloads.
+
+The benchmarks were run on:
+
+* macOS
+* Apple Silicon (`aarch64`)
+* 8 CPU cores
+* OpenJDK 25
+* 2 GB heap
+* 3 independent runs per workload
+
+The numbers below are averages across those runs.
+
+### Backup Performance
+
+| Workload        |  Files |    Input |   Stored | Deduplicated | 4 Workers | Throughput |
+| --------------- | -----: | -------: | -------: | -----------: | --------: | ---------: |
+| Small           |  1,000 |  7.67 MB |  7.81 MB |           0% |    1.06 s |   7.3 MB/s |
+| Medium          | 10,000 | 53.80 MB | 55.19 MB |           0% |   80.09 s |   0.7 MB/s |
+| Duplicate-heavy | 10,000 | 68.13 MB | 20.85 MB |          70% |   63.00 s |   1.1 MB/s |
+
+The duplicate-heavy workload is particularly useful for showing what the deduplication layer is doing: **7,000 of 10,000 files were duplicates**, reducing stored data by about **69.4%**.
+
+### Worker Comparison
+
+| Workload        | 1 Worker | 4 Workers | 8 Workers | 4x Speedup | 8x Speedup |
+| --------------- | -------: | --------: | --------: | ---------: | ---------: |
+| Small           |   2.40 s |    1.06 s |    1.00 s |      2.27x |      2.39x |
+| Medium          |  90.24 s |   80.09 s |   69.76 s |      1.13x |      1.29x |
+| Duplicate-heavy |  84.39 s |   63.00 s |   65.94 s |      1.34x |      1.28x |
+
+The results also show an important point: **more threads don't automatically mean proportionally better performance**.
+
+Once disk I/O and the rest of the pipeline become the bottleneck, adding workers gives diminishing returns.
+
+The raw benchmark output is available in:
+
+```text
+benchmarks/results/latest.json
 ```
 
 ---
 
-## Concurrency Model
+# Failure Handling
 
-### Why Producer–Consumer with `ArrayBlockingQueue`?
-Directory traversal (I/O metadata lookup) and file compression (CPU-bound hashing + deflate compression) have vastly different execution profiles. Producer–Consumer decouples the scanner from workers via a bounded memory buffer:
-- **Automatic Backpressure**: If worker threads are busy compressing large files, `fileQueue.put(task)` automatically blocks the `DirectoryScanner` thread, capping memory usage regardless of directory depth.
-- **Thread Safety**: Eliminates manual synchronization between scanner and workers.
-- **Graceful Termination**: Uses sentinel **poison pills** to cleanly shut down worker threads when scanning finishes.
+A backup system needs to deal with failures without taking down the entire job.
 
-### Why NOT Create One Thread Per File?
-Spawning a thread per file (`new Thread(...)`) fails rapidly:
-1. **Thread Exhaustion**: Traversing 50,000 files attempts to allocate 50,000 OS threads, crashing the JVM with `OutOfMemoryError: unable to create native thread`.
-2. **Context Switching Overhead**: Thousands of competing threads saturate OS schedulers and CPU caches.
-3. **Disk I/O Thrashing**: Thousands of concurrent uncoordinated disk reads destroy sequential read performance on mechanical and flash storage.
+Some of the cases handled by ThreadVault include:
 
----
+| Situation                               | Behavior                                                             |
+| --------------------------------------- | -------------------------------------------------------------------- |
+| File I/O error                          | Individual file fails while remaining work continues                 |
+| Crash during compression                | Temporary archive is never exposed as a completed archive            |
+| Disk full                               | Write failure is recorded and processing can continue where possible |
+| Same file processed by multiple workers | Concurrent deduplication prevents duplicate final archives           |
+| Metadata write failure                  | Metadata persistence is isolated to its writer                       |
+| Application shutdown                    | Active workers are given time to finish                              |
+| Malicious restore path                  | Path traversal is rejected                                           |
+| Source file changes during backup       | Hash is based on the bytes actually read                             |
 
-## Deduplication
-
-ThreadVault implements **Content-Addressable Storage (CAS)**:
-- Files are addressed by their cryptographic digest: `backup_storage/<sha256>.zip`.
-- If two files in different directories (`/docs/report.pdf` and `/shared/copy.pdf`) have identical bytes, both compute the same SHA-256 hash.
-- The worker compresses the content **once** into `<sha256>.zip`.
-- Both files register individual `FileMetadata` records pointing to the shared `<sha256>.zip` archive.
-- During restore, the engine extracts the shared archive to both distinct target paths, guaranteeing byte-for-byte SHA-256 fidelity.
+The goal is not to pretend failures won't happen, but to make sure one failure doesn't unnecessarily invalidate the entire backup.
 
 ---
 
-## Incremental Backup
+# Restore Security
 
-ThreadVault uses a cheap $\mathcal{O}(1)$ metadata comparison before hashing:
-1. Extract `size` and `lastModifiedTime` (in milliseconds from filesystem metadata).
-2. Query in-memory `MetadataStore` by canonical original path.
-3. If entry exists and both `lastModifiedTime` and `size` match: **skip file immediately** without opening, hashing, or compressing.
-4. If modified or new: proceed to SHA-256 hashing, deduplication, and atomic compression.
+Restoration is one of the places where filesystem applications need to be particularly careful.
 
----
+A malicious archive or metadata entry should not be able to escape the selected restore directory using paths such as:
 
-## Performance Benchmarks
+```text
+../../outside.txt
+```
 
-All metrics below represent **actual measured numbers** executed on macOS (`aarch64` Apple Silicon, 8 cores, OpenJDK 25, 2GB heap) using cold temporary directories. Results represent the arithmetic mean across **3 independent test runs**:
+Before extracting a file, ThreadVault resolves and normalizes the destination path and verifies that it still belongs under the intended restore directory.
 
-### 1. Workload Performance & Storage Efficiency
+Conceptually:
 
-| Workload | Total Files | Total Input Size | Stored Archive Size | Files Deduplicated | Execution Time (4 Workers) | Throughput | Deduplication Ratio | Storage Saved |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| **Small Dataset** | 1,000 | 7.67 MB | 7.81 MB | 0 | **1,058 ms** (~1.1 s) | **7.3 MB/s** | 0.0% | -1.8%* |
-| **Medium Dataset** | 10,000 | 53.80 MB | 55.19 MB | 0 | **80,090 ms** (~80.1 s) | **0.7 MB/s** | 0.0% | -2.6%* |
-| **Duplicate-Heavy** | 10,000 | 68.13 MB | 20.85 MB | 7,000 | **63,004 ms** (~63.0 s) | **1.1 MB/s** | **70.0%** | **69.4%** |
+```text
+restore root
+    │
+    ├── documents/
+    │     └── report.pdf     ✓
+    │
+    └── ../../outside.txt    ✗
+```
 
-*\*Note: For incompressible small random binary files (< 5KB), ZIP archive metadata headers add a minor overhead (~2%), which is accurately reflected in real benchmarks.*
-
----
-
-### 2. Concurrency Speedup (Sequential vs Multi-Worker)
-
-| Workload | Total Files | Sequential (1 Worker) | Concurrent (4 Workers) | Concurrent (8 Workers) | Speedup (4 Workers) | Speedup (8 Workers) |
-|---|---:|---:|---:|---:|---:|---:|
-| **Small Dataset** | 1,000 | 2,397 ms (~2.4 s) | 1,058 ms (~1.1 s) | 1,002 ms (~1.0 s) | **2.27x** | **2.39x** |
-| **Medium Dataset** | 10,000 | 90,240 ms (~90.2 s) | 80,090 ms (~80.1 s) | 69,759 ms (~69.8 s) | **1.13x** | **1.29x** |
-| **Duplicate-Heavy** | 10,000 | 84,393 ms (~84.4 s) | 63,004 ms (~63.0 s) | 65,936 ms (~65.9 s) | **1.34x** | **1.28x** |
-
-### Benchmark Metric Formulas
-- **Throughput**: $\text{Throughput (MB/s)} = \frac{\text{Total Processed Input MB}}{\text{Elapsed Time (Seconds)}}$
-- **Deduplication Ratio**: $\text{Deduplication Ratio (\%)} = \left(\frac{\text{Duplicate Files}}{\text{Total Files}}\right) \times 100$
-- **Storage Saved**: $\text{Storage Saved (\%)} = \left(1 - \frac{\text{Total Stored Archive Bytes}}{\text{Total Original Input Bytes}}\right) \times 100$
-- **Speedup**: $\text{Speedup Factor} = \frac{\text{Sequential Time (1 Worker)}}{\text{Concurrent Time (N Workers)}}$
-
-*Raw JSON benchmark output is preserved in [`benchmarks/results/latest.json`](benchmarks/results/latest.json).*
+An invalid path results in a `SecurityException` rather than writing outside the restore location.
 
 ---
 
-## Engineering Decisions
+# Metadata
 
-| Decision | Implementation Choice | Trade-off Accepted & Justification |
-|---|---|---|
-| **Pipeline Concurrency** | `ArrayBlockingQueue<FileTask>(100)` | Bounded buffer applies backpressure on the producer scanner, preventing JVM out-of-memory crashes on large directory hierarchies. |
-| **Deduplication Key** | SHA-256 (256-bit Digest) | Cryptographically collision-resistant content addressability. Accepts minor CPU hashing overhead (~400 MB/s per core) over insecure MD5/CRC32. |
-| **Concurrent Lookup Index** | `ConcurrentHashMap<String, FileMetadata>` | Lock-free $\mathcal{O}(1)$ reads for incremental change checks and deduplication cache lookups across worker threads. |
-| **Live Observability** | Server-Sent Events (SSE) | Lightweight unidirectional HTTP streaming over standard port 8080. Avoids the protocol complexity and TCP duplex overhead of WebSockets. |
-| **Metadata Persistence** | Single-node JSON (`metadata.json`) | Human-readable, zero external database dependencies (no PostgreSQL/Redis needed). Trade-off: $\mathcal{O}(N)$ memory scaling where $N$ is file count. |
-| **Archive Format** | Standalone ZIP (`<hash>.zip`) | Content-addressed Deflate compression. Allows fine-grained per-file restore and cross-run deduplication without monolithic container rewrites. |
-| **Atomic File Moves** | `.tmp.<uuid>` + `Files.move(ATOMIC_MOVE)` | Eliminates race conditions where concurrent workers or restore routines read partially compressed archive blobs. |
-| **Fixed Worker Pool** | `Executors.newFixedThreadPool(workers)` | Prevents thread explosion and context-switching overhead, matching concurrency directly to available CPU cores and I/O capacity. |
-| **Incremental Check Order** | Timestamp & Size Check *before* Hashing | Avoids opening file streams and reading full file bytes into `MessageDigest` when last-modified time and size are identical. |
+The backup engine keeps a metadata catalog containing information about the original files and their stored content.
 
----
+A simplified relationship looks like:
 
-## Failure Handling & Recovery
+```text
+Original Path
+     │
+     ├── size
+     ├── lastModified
+     └── contentHash
+              │
+              ▼
+       <sha256>.zip
+```
 
-| Failure Scenario | Current Behavior | Protection Mechanism | Recovery Action |
-|---|---|---|---|
-| **Worker I/O Exception** | Worker catches exception, increments `failedFiles` counter. | Isolated `try/catch` block inside `BackupWorker.processFile()`. | Remaining files in queue continue processing; job status marks partial/complete with error logs. |
-| **Application Crash Mid-Compression** | Temporary file `.tmp.<uuid>` remains unrenamed in storage. | Atomic rename ensures only fully finalized archives are named `<hash>.zip`. | On restart, completed archives remain valid; unfinished files are reprocessed automatically. |
-| **Disk Full during Backup** | `IOException: No space left on device` thrown during write. | Handled via global error logging in worker and metadata writer. | Worker fails gracefully; partial valid archives and metadata written prior to disk exhaustion persist. |
-| **Duplicate Files Processed Simultaneously** | Two workers hash identical files concurrently. | `DeduplicationEngine.putIfAbsent(hash, path)` + `AtomicMove(REPLACE_EXISTING)`. | First worker compresses; second reuses archive. Atomic move guarantees final archive integrity. |
-| **Metadata Update Failure** | `MetadataWriter` encounters filesystem error saving JSON. | Dedicated single-thread queue consumer with synchronization on `saveMetadata()`. | Retries write; archive blobs remain safe on disk. |
-| **Interrupted Backup (Ctrl+C / Kill)** | Spring Boot graceful shutdown drains active workers. | `@PreDestroy` in `BackupServiceImpl` calls `executor.awaitTermination(5, SECONDS)`. | In-flight tasks finalize writing metadata before process exit. |
-| **Restore Path Traversal Attack** | Malicious path contains `../../outside.txt`. | `RestoreManager` enforces `baseDir.resolve(rel).normalize().toAbsolutePath().startsWith(baseDir)`. | Throws `SecurityException` and aborts malicious file extraction immediately. |
-| **Source File Modified During Backup** | Worker reads file while external process writes. | SHA-256 is computed over exact read bytes; timestamp recorded. | Content is compressed consistently with computed hash; subsequent backup will detect updated timestamp. |
+The metadata catalog is currently stored in:
+
+```text
+metadata/metadata.json
+```
+
+This keeps the project simple and makes the catalog easy to inspect without requiring an external database.
+
+The trade-off is that the catalog is loaded into memory, so this approach would need to change for very large datasets.
 
 ---
 
-## Security
+# Observability
 
-- **Path Traversal Defense**: The restore engine checks canonical path containment before extracting files. Any path resolving outside the designated restore directory triggers an immediate `SecurityException`.
-- **Input Validation**: `BackupRequest` and `RestoreRequest` validate that paths cannot be blank and exist on the filesystem before creating background jobs.
-- **CORS Whitelist**: Whitelists local frontend origins (`http://localhost:3000`, `http://127.0.0.1:3000`).
-- **Non-Root Execution**: Docker containers run as unprivileged system users (`appuser:1001` in backend, `nextjs:1001` in frontend).
+ThreadVault provides a few ways to see what the application is doing:
 
----
+### Logging
 
-## Observability
+SLF4J logging is used for:
 
-- **Structured SLF4J Logging**: Clean log levels (`INFO` for lifecycle milestones, `DEBUG` for per-file operations, `WARN` for retries, `ERROR` for failures).
-- **Spring Boot Actuator Health (`/actuator/health`)**: Custom `ThreadVaultStorageHealthIndicator` checks read/write permissions and free disk space on storage and metadata paths.
-- **Server-Sent Events (`/api/backups/{id}/stream`)**: Emits real-time JSON events (`FILE_PROCESSED`, `FILE_DEDUPLICATED`, `FILE_SKIPPED`, `BACKUP_COMPLETED`).
-- **Interactive Swagger UI (`/swagger-ui.html`)**: Complete OpenAPI 3 documentation for all endpoints and schemas.
+* Backup lifecycle events
+* Worker activity
+* Retries
+* Failures
 
----
+### Health Check
 
-## Screenshots & Workflow
+Spring Boot Actuator exposes:
 
-### Interactive Terminal CLI
-![ThreadVault CLI Backup](assets/ss1.png)
-*Interactive CLI: Concurrent worker execution, incremental change detection, and content deduplication.*
+```text
+GET /actuator/health
+```
 
-![ThreadVault CLI Restore](assets/ss2.png)
-*Interactive CLI: Automated directory structure recreation and archive extraction.*
+The custom storage health check verifies things such as storage accessibility and available disk space.
 
----
+### SSE
 
-## REST API Reference
+Live backup events are exposed through:
 
-| Method | Endpoint | Description | Status Code |
-|---|---|---|---|
-| `POST` | `/api/backups` | Submits an asynchronous backup job | `202 Accepted` |
-| `GET` | `/api/backups/{id}` | Retrieves backup job progress, status, and statistics | `200 OK` |
-| `GET` | `/api/backups` | Lists all historical and active backup jobs | `200 OK` |
-| `GET` | `/api/backups/{id}/stream` | Streams live Server-Sent Events (SSE) progress | `200 OK` (Stream) |
-| `POST` | `/api/backups/{id}/restore` | Restores backed-up files from metadata catalog | `200 OK` |
-| `GET` | `/api/catalog` | Retrieves storage reduction metrics and deduplication summary | `200 OK` |
-| `GET` | `/api/catalog/files` | Queries paginated catalog files with path and hash filters | `200 OK` |
-| `GET` | `/actuator/health` | Application and storage subsystem health check | `200 OK` |
+```text
+GET /api/backups/{id}/stream
+```
+
+### Swagger
+
+The REST API is documented through OpenAPI / Swagger UI.
 
 ---
 
-## Project Structure
+# REST API
+
+| Method | Endpoint                    | Description                      |
+| ------ | --------------------------- | -------------------------------- |
+| `POST` | `/api/backups`              | Start a backup                   |
+| `GET`  | `/api/backups/{id}`         | Get backup progress and status   |
+| `GET`  | `/api/backups`              | List backup jobs                 |
+| `GET`  | `/api/backups/{id}/stream`  | Stream live backup events        |
+| `POST` | `/api/backups/{id}/restore` | Restore a backup                 |
+| `GET`  | `/api/catalog`              | Get catalog and storage metrics  |
+| `GET`  | `/api/catalog/files`        | Query catalog files              |
+| `GET`  | `/actuator/health`          | Check application/storage health |
+
+A backup request returns `202 Accepted` because the actual backup runs asynchronously.
+
+---
+
+# Project Structure
 
 ```text
 ThreadVault/
-├── Dockerfile                     # Multi-stage Java 21 backend container
-├── docker-compose.yml             # Full-stack Docker Compose configuration
-├── pom.xml                        # Maven dependencies (Spring Boot, Actuator, OpenAPI)
-├── benchmarks/                    # Performance benchmark results and runner
-│   ├── README.md                  # Benchmark methodology and results
-│   └── results/latest.json        # Measured raw JSON benchmark metrics
-├── docs/                          # Comprehensive technical documentation
-│   └── THREADVAULT_ENGINEERING_HANDBOOK.md  # 34-section Senior/Interview handbook
-├── frontend/                      # Next.js 16 Web Dashboard
-│   ├── Dockerfile                 # Multi-stage Node.js container
-│   ├── app/                       # Next.js App Router pages (Dashboard, Backups, Catalog, Restore)
-│   ├── components/                # Modular React UI components
-│   └── lib/sse/                   # Custom useBackupStream SSE hook
+├── Dockerfile
+├── docker-compose.yml
+├── pom.xml
+│
+├── benchmarks/
+│   ├── README.md
+│   └── results/
+│       └── latest.json
+│
+├── docs/
+│   └── THREADVAULT_ENGINEERING_HANDBOOK.md
+│
+├── frontend/
+│   ├── Dockerfile
+│   ├── app/
+│   ├── components/
+│   └── lib/
+│       └── sse/
+│
 └── src/
     ├── main/java/
-    │   ├── Main.java              # Application entry point (CLI vs Server mode)
-    │   ├── backup/                # BackupManager, BackupWorker
-    │   ├── scanner/               # DirectoryScanner (Producer)
-    │   ├── incremental/           # IncrementalBackupEngine (Timestamp/Size check)
-    │   ├── dedup/                 # DeduplicationEngine, HashCalculator (SHA-256)
-    │   ├── compression/           # CompressionManager (Atomic ZIP)
-    │   ├── metadata/              # MetadataStore, MetadataWriter
-    │   ├── restore/               # RestoreManager (Secure extraction)
-    │   ├── event/                 # BackupEventHub, BackupEventPublisher (SSE)
-    │   ├── service/               # BackupService, CatalogService
-    │   └── controller/            # BackupController, CatalogController, Actuator
-    └── test/java/                 # 31 unit, integration, and concurrency test suites
+    │   ├── backup/
+    │   ├── scanner/
+    │   ├── incremental/
+    │   ├── dedup/
+    │   ├── compression/
+    │   ├── metadata/
+    │   ├── restore/
+    │   ├── event/
+    │   ├── service/
+    │   └── controller/
+    │
+    └── test/java/
 ```
+
+The core packages are separated by responsibility rather than putting all of the backup logic into one service.
 
 ---
 
-## Running Locally
+# Tech Stack
 
-### Prerequisites
-- **Java 21+**
-- **Maven 3.9+**
-- **Node.js 20+**
+| Area             | Technology                            |
+| ---------------- | ------------------------------------- |
+| Language         | Java 21                               |
+| Backend          | Spring Boot 3.4.2                     |
+| Frontend         | Next.js 16 / React                    |
+| Database         | JSON-based metadata catalog           |
+| API              | REST + Server-Sent Events             |
+| Documentation    | OpenAPI / Swagger                     |
+| Concurrency      | Java Executors + `ArrayBlockingQueue` |
+| Hashing          | SHA-256                               |
+| Compression      | ZIP / Deflate                         |
+| Containerization | Docker Compose                        |
+| Testing          | JUnit                                 |
 
-### 1. Build and Run Backend
+---
+
+# Running Locally
+
+## Prerequisites
+
+* Java 21+
+* Maven 3.9+
+* Node.js 20+
+
+## Backend
+
+Build the project:
+
 ```bash
-# Compile and package the JAR
 mvn clean package
+```
 
-# Option A: Run Interactive CLI Mode (Default)
+Run the CLI:
+
+```bash
 java -jar target/ThreadVault-1.0-SNAPSHOT.jar
+```
 
-# Option B: Run Spring Boot REST API & SSE Server
+Or start the REST API:
+
+```bash
 java -jar target/ThreadVault-1.0-SNAPSHOT.jar --server
 ```
 
-### 2. Run Next.js Frontend Dashboard
+The backend runs on:
+
+```text
+http://localhost:8080
+```
+
+## Frontend
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-*(Access the dashboard at `http://localhost:3000`)*
+
+The dashboard runs on:
+
+```text
+http://localhost:3000
+```
 
 ---
 
-## Running with Docker Compose (Recommended)
+# Docker Compose
+
+Docker Compose is the easiest way to run the complete application.
 
 ```bash
-# Build and start all containers in the background
 docker compose up --build -d
+```
 
-# Check container status and health
+Check the containers:
+
+```bash
 docker compose ps
 ```
-- **Web Dashboard**: [http://localhost:3000](http://localhost:3000)
-- **REST API Backend**: [http://localhost:8080](http://localhost:8080)
-- **OpenAPI / Swagger UI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
-- **Actuator Health Check**: [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health)
 
-### Persistent Named Volumes
-- `threadvault_storage` $\rightarrow$ `/app/backup_storage` (Preserves ZIP archives across container recreation)
-- `threadvault_metadata` $\rightarrow$ `/app/metadata` (Preserves `metadata.json` catalog across container recreation)
+The main services are available at:
+
+```text
+Dashboard
+http://localhost:3000
+
+REST API
+http://localhost:8080
+
+Swagger UI
+http://localhost:8080/swagger-ui.html
+
+Health Check
+http://localhost:8080/actuator/health
+```
+
+Backup data is stored in persistent Docker volumes:
+
+```text
+threadvault_storage
+    → /app/backup_storage
+
+threadvault_metadata
+    → /app/metadata
+```
 
 ---
 
-## Running Tests & Benchmarks
+# Testing & Benchmarks
+
+Run the backend tests with:
 
 ```bash
-# 1. Run Complete Automated Backend Test Suite (31 unit & integration tests)
 mvn clean test
+```
 
-# 2. Run Automated Performance Benchmarks (Small, Medium, Duplicate-Heavy)
+Run the benchmark suite:
+
+```bash
 mvn test-compile
-mvn dependency:build-classpath -Dmdep.outputFile=target/cp.txt
-java -cp "$(cat target/cp.txt):target/classes:target/test-classes" benchmark.BackupBenchmarkRunner
 
-# 3. Run Frontend Linter & Production Build
+mvn dependency:build-classpath \
+    -Dmdep.outputFile=target/cp.txt
+
+java -cp "$(cat target/cp.txt):target/classes:target/test-classes" \
+    benchmark.BackupBenchmarkRunner
+```
+
+Build and lint the frontend:
+
+```bash
 cd frontend
+
 npm run lint
 npm run build
 ```
 
 ---
 
-## Configuration
+# Configuration
 
-| Environment Variable | Default Value | Description |
-|---|---|---|
-| `PORT` / `SERVER_PORT` | `8080` | HTTP port for the Spring Boot REST/SSE API |
-| `THREADVAULT_DEFAULT_WORKERS` | `4` | Default worker thread count for parallel processing |
-| `THREADVAULT_STORAGE_PATH` | `backup_storage` | Filesystem path where ZIP archive blobs are stored |
-| `THREADVAULT_METADATA_PATH` | `metadata` | Filesystem directory storing `metadata.json` |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8080` | Backend API URL used by the Next.js frontend |
-
----
-
-## Design Trade-offs & Limitations
-
-1. **In-Memory Job Registry**: `BackupJobRegistry` stores active/completed job execution objects in memory. While the physical backup catalog (`metadata.json`) persists across restarts, historical job execution objects (e.g. `startedAt`, `durationMs`) reset upon server restart.
-2. **Single-Node In-Memory Catalog**: `MetadataStore` loads `metadata.json` into memory. Suitable for tens of thousands of files; datasets with millions of files would require an embedded database (e.g., RocksDB or SQLite).
-3. **No Encryption at Rest**: Archive blobs are compressed with standard Deflate without AES-256 payload encryption.
+| Variable                      | Default                 | Purpose                  |
+| ----------------------------- | ----------------------- | ------------------------ |
+| `PORT` / `SERVER_PORT`        | `8080`                  | REST/SSE server port     |
+| `THREADVAULT_DEFAULT_WORKERS` | `4`                     | Number of backup workers |
+| `THREADVAULT_STORAGE_PATH`    | `backup_storage`        | Archive storage location |
+| `THREADVAULT_METADATA_PATH`   | `metadata`              | Metadata directory       |
+| `NEXT_PUBLIC_API_BASE_URL`    | `http://localhost:8080` | Backend URL for frontend |
 
 ---
 
-## Future Improvements
+# Design Trade-offs
 
-### Near-Term
-- Add selective single-file restore from the web UI.
-- Add AES-256 encryption-at-rest for archive ZIP files.
-- Add persistent SQLite storage for historical backup execution logs.
+ThreadVault intentionally keeps some parts simple.
 
-### Large-Scale / Distributed
-- Support AWS S3 / MinIO object storage as destination backends.
-- Implement distributed worker coordination via Kafka or gRPC.
+### JSON instead of a database
+
+The metadata catalog is stored in JSON because it keeps the project self-contained and easy to inspect.
+
+The downside is that loading the entire catalog into memory won't scale indefinitely.
+
+For a much larger system, I'd move this to something like SQLite, RocksDB, or another persistent indexed store.
+
+### ZIP instead of a custom archive format
+
+ZIP is well understood, easy to inspect, and supports individual file extraction.
+
+A custom archive format could potentially offer better control, but it would add complexity without much benefit for this project.
+
+### SSE instead of WebSockets
+
+The dashboard mostly needs information flowing from the server to the browser.
+
+SSE provides that without introducing the additional complexity of a bidirectional WebSocket connection.
+
+### In-memory job registry
+
+Backup execution state is currently kept in memory.
+
+The actual backup files and metadata survive a restart, but historical runtime information such as job duration does not.
 
 ---
 
-## Documentation
+# Limitations
 
-- **[ThreadVault Engineering & Interview Handbook](docs/THREADVAULT_ENGINEERING_HANDBOOK.md)**: Exhaustive 34-section technical breakdown covering Producer–Consumer architecture, concurrency mechanics, deduplication algorithms, restore safety, failure scenarios, performance benchmarks, and comprehensive interview preparation Q&As.
-- **[Interactive OpenAPI 3 / Swagger Documentation](http://localhost:8080/swagger-ui.html)**: Live REST API contract explorer.
-- **[Benchmark Methodology & Results](benchmarks/README.md)**: Detailed benchmark setup and reproducibility guide.
+There are a few areas I would change if this were being built for a much larger production environment:
+
+* Metadata is currently backed by JSON and loaded into memory.
+* Backup job history is not persisted separately from the backup catalog.
+* Archive encryption is not implemented.
+* The system currently assumes a single application node.
+* Storage is local filesystem based.
+* Distributed worker coordination is not supported.
 
 ---
 
-## License
+# Future Improvements
 
-Apache 2.0 License. © 2026 ThreadVault Engineering.
+Some things I'd like to explore next:
+
+### Near term
+
+* Single-file restore from the web dashboard
+* AES-256 encryption for stored archives
+* Persistent backup job history
+* Better cleanup of abandoned temporary files
+* More detailed dashboard metrics
+
+### Larger-scale version
+
+* S3 / MinIO storage backends
+* SQLite or RocksDB metadata storage
+* Distributed worker processing
+* Kafka or gRPC-based job coordination
+* Multi-node deployment
+* More extensive failure and recovery testing
+
+---
+
+# Documentation
+
+* Swagger UI — interactive REST API documentation when the application is running.
+
+---
+
+# License
+
+Apache 2.0 License.
+
+© 2026 ThreadVault Engineering
