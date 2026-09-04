@@ -162,6 +162,12 @@ cd frontend && npm run build
 
 ---
 
+## Documentation
+
+- **[Interactive OpenAPI 3 / Swagger Documentation](http://localhost:8080/swagger-ui.html)**: Live REST API contract explorer.
+
+---
+
 ## License
 
 Apache 2.0 License. © 2026 ThreadVault Engineering.
